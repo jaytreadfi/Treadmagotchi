@@ -1,8 +1,9 @@
 /**
  * AI prompt builder — ported from treadbot/backend/app/ai/prompt.py.
  * Builds system + decision prompts for Claude.
+ * Includes trade history so the AI can learn from past decisions.
  */
-import type { Position } from '@/lib/types';
+import type { Position, TradeRecord, TradeOutcome } from '@/lib/types';
 
 const SYSTEM_PROMPT = `You are Treadbot, an autonomous market-making bot on Paradex via Treadfi.
 Capital: ~$127. Think like a market maker, not a trader.
@@ -85,6 +86,18 @@ Current time: {current_time}
 - -0.1 to -0.3: Bearish lean (high funding, downtrend)
 - Never exceed +/-0.3. Default 0.0 if uncertain.
 
+## LEARNING FROM HISTORY
+
+You have access to your past trading decisions and their outcomes below.
+**Study these carefully.** Identify what worked and what didn't:
+- Which pairs were profitable vs unprofitable?
+- Which reference_price modes (grid/reverse_grid/mid) performed best?
+- Which time windows produced wins vs stop-losses?
+- Did higher leverage help or hurt?
+- Were there specific spread values that worked better?
+
+**Adapt your strategy based on these patterns.** If grid mode keeps getting stopped out on a pair, try mid or reverse_grid. If a pair consistently loses, avoid it. If Asian session trades win more, favor those conditions.
+
 ## DIVERSIFICATION
 
 Spread across 2-3 pairs if multiple calm pairs exist (score >= 75).
@@ -114,12 +127,19 @@ const DECISION_PROMPT = `
 ## TREADTOOLS MARKET SCAN
 {treadtools_context}
 
+## YOUR PAST DECISIONS & OUTCOMES
+{trade_history}
+
+## PATTERN ANALYSIS
+{pattern_analysis}
+
 ## RECENT PERFORMANCE
 {recent_performance}
 
 ## DECISION
 Rules: market_make or hold ONLY. Only calm pairs (score >= 70, "great", vol >= $20M).
 Max $25 margin per bot. Max 50x leverage. Max 4h duration. Max 10 bps spread.
+**Learn from your history above.** Repeat what worked, avoid what didn't.
 
 IMPORTANT: Your ENTIRE response must be a single valid JSON object. No markdown. Put reasoning in the "reasoning" field.`;
 
@@ -141,6 +161,8 @@ export function buildDecisionPrompt(params: {
   positions: Position[];
   treadtools_context: string;
   recent_performance: string;
+  trade_history: string;
+  pattern_analysis: string;
 }): string {
   return DECISION_PROMPT
     .replace('${balance}', params.balance.toFixed(2))
@@ -150,6 +172,8 @@ export function buildDecisionPrompt(params: {
     .replace('${available}', params.available.toFixed(2))
     .replace('{positions_table}', formatPositions(params.positions))
     .replace('{treadtools_context}', params.treadtools_context)
+    .replace('{trade_history}', params.trade_history)
+    .replace('{pattern_analysis}', params.pattern_analysis)
     .replace('{recent_performance}', params.recent_performance);
 }
 
@@ -162,5 +186,141 @@ function formatPositions(positions: Position[]): string {
   for (const p of positions) {
     lines.push(`| ${p.pair} | ${p.side} | ${p.size.toFixed(4)} | $${p.entry_price.toFixed(2)} | $${p.mark_price.toFixed(2)} | $${(p.unrealized_pnl >= 0 ? '+' : '') + p.unrealized_pnl.toFixed(2)} |`);
   }
+  return lines.join('\n');
+}
+
+// ── Trade history formatting for AI learning ──
+
+interface TradeWithOutcome {
+  trade: TradeRecord;
+  outcome: TradeOutcome | null;
+}
+
+export function formatTradeHistory(trades: TradeWithOutcome[]): string {
+  if (!trades.length) return 'No completed trades yet. This is your first session.';
+
+  const lines = [
+    '| Time (UTC) | Pair | Mode | Spread | Lev | Duration | Margin | PnL | Result |',
+    '|------------|------|------|--------|-----|----------|--------|-----|--------|',
+  ];
+
+  for (const { trade, outcome } of trades) {
+    let params: Record<string, unknown> = {};
+    try {
+      params = typeof trade.mm_params === 'string' ? JSON.parse(trade.mm_params) : (trade.mm_params || {});
+    } catch { /* empty */ }
+
+    const time = new Date(trade.timestamp).toISOString().slice(11, 16);
+    const pair = trade.pair;
+    const mode = String(params.reference_price || 'mid');
+    const spread = params.spread_bps != null ? `${params.spread_bps}bps` : '?';
+    const lev = params.leverage ? `${params.leverage}x` : '?';
+    const dur = params.duration ? `${Math.round(Number(params.duration) / 60)}m` : '?';
+    const margin = params.margin ? `$${Number(params.margin).toFixed(0)}` : '?';
+    const pnl = outcome ? `$${outcome.realized_pnl >= 0 ? '+' : ''}${outcome.realized_pnl.toFixed(2)}` : '?';
+    const result = trade.status === 'stop_loss' ? 'STOP_LOSS'
+      : trade.status === 'take_profit' ? 'TAKE_PROFIT'
+      : outcome ? (outcome.outcome === 'win' ? 'WIN' : outcome.outcome === 'loss' ? 'LOSS' : 'BREAK_EVEN')
+      : trade.status.toUpperCase();
+
+    lines.push(`| ${time} | ${pair} | ${mode} | ${spread} | ${lev} | ${dur} | ${margin} | ${pnl} | ${result} |`);
+  }
+
+  return lines.join('\n');
+}
+
+export function analyzePatterns(trades: TradeWithOutcome[]): string {
+  if (trades.length < 3) return 'Not enough trade history to analyze patterns yet.';
+
+  const lines: string[] = [];
+
+  // Per-pair stats
+  const pairStats = new Map<string, { wins: number; losses: number; pnl: number; count: number }>();
+  // Per-mode stats
+  const modeStats = new Map<string, { wins: number; losses: number; pnl: number; count: number }>();
+  // Per-hour stats (UTC)
+  const hourStats = new Map<number, { wins: number; losses: number; pnl: number; count: number }>();
+
+  for (const { trade, outcome } of trades) {
+    if (!outcome) continue;
+
+    let params: Record<string, unknown> = {};
+    try {
+      params = typeof trade.mm_params === 'string' ? JSON.parse(trade.mm_params) : (trade.mm_params || {});
+    } catch { /* empty */ }
+
+    const isWin = outcome.realized_pnl > 0.001;
+    const isLoss = outcome.realized_pnl < -0.001;
+    const hour = new Date(trade.timestamp).getUTCHours();
+    const mode = String(params.reference_price || 'unknown');
+
+    // Pair
+    const ps = pairStats.get(trade.pair) || { wins: 0, losses: 0, pnl: 0, count: 0 };
+    ps.count++;
+    ps.pnl += outcome.realized_pnl;
+    if (isWin) ps.wins++;
+    if (isLoss) ps.losses++;
+    pairStats.set(trade.pair, ps);
+
+    // Mode
+    const ms = modeStats.get(mode) || { wins: 0, losses: 0, pnl: 0, count: 0 };
+    ms.count++;
+    ms.pnl += outcome.realized_pnl;
+    if (isWin) ms.wins++;
+    if (isLoss) ms.losses++;
+    modeStats.set(mode, ms);
+
+    // Hour
+    const hs = hourStats.get(hour) || { wins: 0, losses: 0, pnl: 0, count: 0 };
+    hs.count++;
+    hs.pnl += outcome.realized_pnl;
+    if (isWin) hs.wins++;
+    if (isLoss) hs.losses++;
+    hourStats.set(hour, hs);
+  }
+
+  // Format pair analysis
+  if (pairStats.size > 0) {
+    lines.push('**Per-Pair Performance:**');
+    for (const [pair, s] of [...pairStats.entries()].sort((a, b) => b[1].pnl - a[1].pnl)) {
+      const wr = s.count > 0 ? ((s.wins / s.count) * 100).toFixed(0) : '0';
+      lines.push(`- ${pair}: ${s.wins}W/${s.losses}L (${wr}% WR), PnL $${s.pnl >= 0 ? '+' : ''}${s.pnl.toFixed(2)}`);
+    }
+  }
+
+  // Format mode analysis
+  if (modeStats.size > 0) {
+    lines.push('\n**Per-Mode Performance:**');
+    for (const [mode, s] of [...modeStats.entries()].sort((a, b) => b[1].pnl - a[1].pnl)) {
+      const wr = s.count > 0 ? ((s.wins / s.count) * 100).toFixed(0) : '0';
+      lines.push(`- ${mode}: ${s.wins}W/${s.losses}L (${wr}% WR), PnL $${s.pnl >= 0 ? '+' : ''}${s.pnl.toFixed(2)}`);
+    }
+  }
+
+  // Format time analysis
+  if (hourStats.size > 0) {
+    lines.push('\n**Per-Hour Performance (UTC):**');
+    const profitable: string[] = [];
+    const unprofitable: string[] = [];
+    for (const [hour, s] of [...hourStats.entries()].sort((a, b) => a[0] - b[0])) {
+      if (s.pnl > 0) profitable.push(`${hour}:00 ($${s.pnl.toFixed(2)})`);
+      else if (s.pnl < 0) unprofitable.push(`${hour}:00 ($${s.pnl.toFixed(2)})`);
+    }
+    if (profitable.length) lines.push(`- Profitable hours: ${profitable.join(', ')}`);
+    if (unprofitable.length) lines.push(`- Unprofitable hours: ${unprofitable.join(', ')}`);
+  }
+
+  // Key takeaways
+  const bestPair = [...pairStats.entries()].sort((a, b) => b[1].pnl - a[1].pnl)[0];
+  const worstPair = [...pairStats.entries()].sort((a, b) => a[1].pnl - b[1].pnl)[0];
+  const bestMode = [...modeStats.entries()].sort((a, b) => b[1].pnl - a[1].pnl)[0];
+
+  if (bestPair && worstPair && bestPair[0] !== worstPair[0]) {
+    lines.push(`\n**Key Insights:** Best pair: ${bestPair[0]} ($${bestPair[1].pnl >= 0 ? '+' : ''}${bestPair[1].pnl.toFixed(2)}). Worst pair: ${worstPair[0]} ($${worstPair[1].pnl.toFixed(2)}).`);
+  }
+  if (bestMode) {
+    lines.push(`Best mode: ${bestMode[0]} (${bestMode[1].wins}W/${bestMode[1].losses}L).`);
+  }
+
   return lines.join('\n');
 }

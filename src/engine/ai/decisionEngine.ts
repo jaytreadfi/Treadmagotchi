@@ -15,6 +15,8 @@ export async function makeDecision(params: {
   positions: Position[];
   treadtoolsContext: string;
   recentPerformance: string;
+  tradeHistory: string;
+  patternAnalysis: string;
   snapshot: TreadtoolsSnapshot | null;
   metrics: RiskMetrics;
 }): Promise<AIDecision> {
@@ -30,6 +32,8 @@ export async function makeDecision(params: {
       positions: params.positions,
       treadtools_context: params.treadtoolsContext,
       recent_performance: params.recentPerformance,
+      trade_history: params.tradeHistory,
+      pattern_analysis: params.patternAnalysis,
     });
 
     const decision = await getDecision(system, user);

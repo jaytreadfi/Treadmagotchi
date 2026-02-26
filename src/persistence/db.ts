@@ -57,6 +57,32 @@ export async function getTradeOutcomes(limit = 20): Promise<TradeOutcome[]> {
   return db.tradeOutcomes.orderBy('timestamp').reverse().limit(limit).toArray();
 }
 
+/** Get completed trades joined with their outcomes for AI learning context. */
+export async function getTradesWithOutcomes(limit = 30): Promise<Array<{
+  trade: TradeRecord;
+  outcome: TradeOutcome | null;
+}>> {
+  // Get trades in terminal states
+  const trades = await db.trades
+    .orderBy('timestamp')
+    .reverse()
+    .limit(limit * 2) // fetch extra to filter
+    .toArray();
+
+  const completedTrades = trades.filter((t) =>
+    ['completed', 'stop_loss', 'take_profit', 'canceled', 'failed'].includes(t.status),
+  ).slice(0, limit);
+
+  // Get all outcomes and index by trade_id
+  const outcomes = await db.tradeOutcomes.toArray();
+  const outcomeMap = new Map(outcomes.map((o) => [o.trade_id, o]));
+
+  return completedTrades.map((trade) => ({
+    trade,
+    outcome: trade.id != null ? outcomeMap.get(trade.id) ?? null : null,
+  }));
+}
+
 // ── PnL snapshots ──
 
 export async function savePnlSnapshot(snapshot: Omit<PnLSnapshot, 'id'>): Promise<void> {

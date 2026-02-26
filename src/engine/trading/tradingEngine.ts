@@ -80,8 +80,9 @@ export async function runTradingLoop(): Promise<void> {
       return;
     }
 
-    // 8. Build performance summary
+    // 8. Build performance summary + trade history for AI learning
     const recentPerf = await buildPerformance(account.equity);
+    const { tradeHistory, patternAnalysis } = await buildTradeHistory();
 
     // 9. Make decision (Claude or rule-based)
     const maxMargin = riskManager.maxMargin(account.equity);
@@ -98,6 +99,8 @@ export async function runTradingLoop(): Promise<void> {
       positions,
       treadtoolsContext: treadtoolsCtx,
       recentPerformance: recentPerf,
+      tradeHistory,
+      patternAnalysis,
       snapshot,
       metrics,
     });
@@ -173,6 +176,15 @@ export async function runStatusSync(): Promise<void> {
   } catch (err) {
     console.error('[TradingEngine] Sync error:', err);
   }
+}
+
+async function buildTradeHistory(): Promise<{ tradeHistory: string; patternAnalysis: string }> {
+  const { formatTradeHistory, analyzePatterns } = await import('@/engine/ai/promptBuilder');
+  const tradesWithOutcomes = await db.getTradesWithOutcomes(30);
+  return {
+    tradeHistory: formatTradeHistory(tradesWithOutcomes),
+    patternAnalysis: analyzePatterns(tradesWithOutcomes),
+  };
 }
 
 async function buildPerformance(equity: number): Promise<string> {
