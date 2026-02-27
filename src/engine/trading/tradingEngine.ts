@@ -28,13 +28,16 @@ export async function runTradingLoop(): Promise<void> {
   log('=== Trading Loop Start ===');
 
   try {
-    // 1. Fetch TreadTools snapshot
-    log('Fetching TreadTools data...');
-    const snapshot = await treadtoolsApi.getSnapshot();
+    // 1. Fetch TreadTools snapshot for the exchange we're trading on
+    const accountName = typeof window !== 'undefined'
+      ? localStorage.getItem('treadfi_account_name') || 'Paradex'
+      : 'Paradex';
+    log(`Fetching TreadTools data for ${accountName}...`);
+    const snapshot = await treadtoolsApi.getSnapshot(accountName);
     const treadtoolsCtx = snapshot
       ? treadtoolsApi.toContextString(snapshot)
       : 'Treadtools unavailable. HOLD.';
-    log(`TreadTools: ${snapshot ? `${snapshot.calm_pairs.length} calm pairs` : 'unavailable'}`);
+    log(`TreadTools: ${snapshot ? `${snapshot.calm_pairs.length} eligible pairs (HL: ${snapshot.hyperliquid_markets.length}, Paradex: ${snapshot.paradex_markets.length})` : 'unavailable'}`);
 
     // 2. Select active pairs
     const activePairs = getActivePairs(snapshot);

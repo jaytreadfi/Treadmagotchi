@@ -139,10 +139,18 @@ export function onTradeCompleted(pnl: number, volume: number): void {
 
 export function revivePet(): void {
   const pet = usePetStore.getState();
+  const previousStage = pet.stage;
+  const previousVolume = pet.cumulative_volume;
+
   pet.setIsAlive(true);
   pet.setVitals({ hunger: 50, happiness: 30, energy: 50, health: 50 });
   pet.setConsecutiveLosses(0);
+  pet.setCumulativeVolume(0);
+  pet.setStage('EGG');
   pet.setMood('content');
-  pet.setSpeechBubble("I'm back!", 5000);
-  db.saveEvent('revive', '{}');
+  pet.setSpeechBubble("I'm back... starting over.", 5000);
+  db.saveEvent('revive', JSON.stringify({
+    previous_stage: previousStage,
+    lost_volume: previousVolume,
+  }));
 }

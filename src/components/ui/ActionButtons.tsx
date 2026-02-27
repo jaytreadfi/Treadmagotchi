@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useConfigStore } from '@/store/useConfigStore';
 import { usePetStore } from '@/store/usePetStore';
 import { triggerManualFeed } from '@/engine/scheduler/loopScheduler';
 import { revivePet } from '@/engine/pet/petStateMachine';
 import PixelButton from './PixelButton';
+
+const PET_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes
 
 interface ActionButtonsProps {
   onStatsClick: () => void;

@@ -41,6 +41,8 @@ export interface PairRanking {
 export interface TreadtoolsSnapshot {
   timestamp: string;
   hyperliquid_markets: MarketSuitability[];
+  paradex_markets: MarketSuitability[];
+  all_markets: MarketSuitability[]; // merged, deduplicated (best score wins)
   rankings: Record<string, PairRanking[]>;
   calm_pairs: string[];
 }

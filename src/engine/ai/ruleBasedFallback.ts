@@ -14,9 +14,9 @@ export function getRuleBasedDecision(
     return { action: 'hold', reasoning: snapshot ? metrics.risk_message : 'No market data available.' };
   }
 
-  // Find best eligible pair
-  const eligible = snapshot.hyperliquid_markets
-    .filter((m) => m.status === 'great' && m.score >= TREADTOOLS_MIN_SCORE && m.volume >= MIN_VOLUME)
+  // Find best eligible pair from merged markets
+  const eligible = (snapshot.all_markets || snapshot.hyperliquid_markets)
+    .filter((m) => ['great', 'good'].includes(m.status) && m.score >= TREADTOOLS_MIN_SCORE && m.volume >= MIN_VOLUME)
     .sort((a, b) => b.score - a.score);
 
   if (!eligible.length) {
