@@ -3,7 +3,7 @@
  * Enforces hard-coded limits. Runs entirely client-side.
  */
 import {
-  MAX_POSITION_PCT, MAX_TOTAL_EXPOSURE_PCT, MAX_DAILY_LOSS_USD,
+  MAX_POSITION_PCT, MAX_TOTAL_EXPOSURE_PCT, MAX_DAILY_LOSS_USD, MAX_DAILY_LOSS_PCT,
   MAX_DRAWDOWN_PCT, STOP_LOSS_PCT,
 } from '@/lib/constants';
 import type { Position, RiskMetrics } from '@/lib/types';
@@ -63,8 +63,11 @@ class RiskManager {
     // Exposure cap removed — leverage inflates notional exposure far beyond equity,
     // which is expected for leveraged MM bots. Margin-per-trade cap still applies.
     const daily = this.getDailyLoss();
-    if (daily >= MAX_DAILY_LOSS_USD) {
-      return { canTrade: false, message: `Daily loss $${daily.toFixed(2)} >= $${MAX_DAILY_LOSS_USD.toFixed(2)}` };
+    // Adaptive daily loss: max(fixed $10, 5% of peak equity)
+    const equityBasedLimit = this.peakEquity * MAX_DAILY_LOSS_PCT;
+    const effectiveLimit = Math.max(MAX_DAILY_LOSS_USD, equityBasedLimit);
+    if (daily >= effectiveLimit) {
+      return { canTrade: false, message: `Daily loss $${daily.toFixed(2)} >= $${effectiveLimit.toFixed(2)} (${(MAX_DAILY_LOSS_PCT * 100).toFixed(0)}% of peak equity)` };
     }
     return { canTrade: true, message: 'OK' };
   }

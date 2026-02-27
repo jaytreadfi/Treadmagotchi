@@ -1,9 +1,10 @@
 import type { EvolutionStage } from './types';
 
 // ── Risk limits (ported identically from Treadbot config.py) ──
-export const MAX_POSITION_PCT = 0.20;
+export const MAX_POSITION_PCT = 0.40;
 export const MAX_TOTAL_EXPOSURE_PCT = 0.60;
-export const MAX_DAILY_LOSS_USD = 10.0;
+export const MAX_DAILY_LOSS_USD = 10.0;   // Absolute floor
+export const MAX_DAILY_LOSS_PCT = 0.05;   // 5% of equity — used when equity-based limit > $10
 export const MAX_DRAWDOWN_PCT = 0.15;
 export const STOP_LOSS_PCT = 0.10;
 export const MAX_LEVERAGE = 50;
@@ -44,9 +45,12 @@ export const EVOLUTION_ORDER: EvolutionStage[] = [
 export const FALLBACK_PAIRS = ['BTC-USD', 'ETH-USD', 'SOL-USD'];
 
 // ── Treadfi pair conversion ──
-export function pairToTreadfi(pair: string): string {
+const USDT_EXCHANGES = new Set(['okxdex', 'aster', 'bybit']);
+
+export function pairToTreadfi(pair: string, exchange?: string): string {
   const base = pair.replace('-USD', '').replace('-USDT', '').trim();
-  return `${base}:PERP-USDC`;
+  const quote = exchange && USDT_EXCHANGES.has(exchange.toLowerCase()) ? 'USDT' : 'USDC';
+  return `${base}:PERP-${quote}`;
 }
 
 export function treadfiToPair(treadfiPair: string): string {

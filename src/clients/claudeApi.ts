@@ -63,7 +63,7 @@ export async function getDecisions(
       schedule_discretion: item.schedule_discretion as number | undefined,
       alpha_tilt: item.alpha_tilt as number | undefined,
       grid_take_profit_pct: item.grid_take_profit_pct as number | undefined,
-      confidence: item.confidence as string | undefined,
+      confidence: typeof item.confidence === 'number' ? item.confidence : item.confidence as string | undefined,
       reasoning: String(item.reasoning || ''),
     }));
   } catch (err) {

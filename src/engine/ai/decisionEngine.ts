@@ -15,6 +15,9 @@ export async function makeDecisions(params: {
   recentPerformance: string;
   tradeHistory: string;
   patternAnalysis: string;
+  regimeContext?: string;
+  orderbookContext?: string;
+  lessonsContext?: string;
   snapshot: TreadtoolsSnapshot | null;
   metrics: RiskMetrics;
   totalEquity: number;
@@ -30,6 +33,9 @@ export async function makeDecisions(params: {
       recent_performance: params.recentPerformance,
       trade_history: params.tradeHistory,
       pattern_analysis: params.patternAnalysis,
+      regime_context: params.regimeContext,
+      orderbook_context: params.orderbookContext,
+      lessons_context: params.lessonsContext,
     });
 
     const decisions = await getDecisions(system, user);

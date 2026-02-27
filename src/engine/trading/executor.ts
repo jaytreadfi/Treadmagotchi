@@ -42,11 +42,13 @@ export async function executeMm(
   decision: AIDecision,
   equity: number,
   accountName = 'Paradex',
+  exchange = '',
 ): Promise<Record<string, unknown> | null> {
   if (decision.action !== 'market_make' || !decision.pair) return null;
 
-  // Clamp parameters to hard limits
-  const margin = Math.min(decision.margin || 0, equity * MAX_POSITION_PCT);
+  // Clamp parameters to hard limits, apply confidence weighting
+  const confidence = typeof decision.confidence === 'number' ? Math.max(0.1, Math.min(1, decision.confidence)) : 1;
+  const margin = Math.min((decision.margin || 0) * confidence, equity * MAX_POSITION_PCT);
   const leverage = Math.min(decision.leverage || 3, MAX_LEVERAGE);
   const duration = Math.min(decision.duration || 3600, MAX_MM_DURATION);
   let spreadBps = decision.spread_bps ?? 5;
@@ -54,10 +56,55 @@ export async function executeMm(
 
   if (margin < 5) return null;
 
+  // Get mid price to calculate base_asset_qty (required by Tread API)
+  let midPrice = 0;
   try {
-    // Submit with margin + leverage only. Tread calculates volume.
+    midPrice = (await treadApi.getMidPrice(decision.pair, accountName)) || 0;
+  } catch { /* fallback below */ }
+  if (midPrice <= 0) {
+    // Try Hyperliquid as fallback
+    try {
+      const hlRes = await fetch('/api/proxy/hyperliquid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'allMids' }),
+      });
+      const mids = await hlRes.json() as Record<string, string>;
+      const base = decision.pair.split('-')[0];
+      midPrice = parseFloat(mids[base] || '0');
+    } catch { /* give up */ }
+  }
+  if (midPrice <= 0) return null;
+
+  // Target notional = margin * leverage * multiplier (from Tread's MM engine)
+  // reverse_grid uses 10 cycles, all other modes use 20 cycles
+  const refPrice = decision.reference_price || 'mid';
+  const multiplier = refPrice === 'reverse_grid' ? 10 : 20;
+  const targetNotional = margin * leverage * multiplier;
+
+  // Total base qty = targetNotional / currentPrice, split in half for buy+sell
+  const totalBaseQty = targetNotional / midPrice;
+  let perSideQty = totalBaseQty / 2;
+
+  // If alpha_tilt is applied, further halve (directional bias reduces per-side)
+  if (decision.alpha_tilt && Math.abs(decision.alpha_tilt) > 0.01) {
+    perSideQty = perSideQty / 2;
+  }
+
+  // Round based on price magnitude
+  if (midPrice > 10000) perSideQty = Math.round(perSideQty * 100000) / 100000;
+  else if (midPrice > 100) perSideQty = Math.round(perSideQty * 10000) / 10000;
+  else perSideQty = Math.round(perSideQty * 100) / 100;
+  if (perSideQty <= 0) return null;
+
+  console.log(`[Executor] Notional calc: margin=$${margin} × lev=${leverage} × mult=${multiplier} = $${targetNotional.toFixed(0)} target | perSide=${perSideQty} @ $${midPrice.toFixed(2)}`);
+  const baseQty = perSideQty;
+
+  try {
+    console.log(`[Executor] Submitting MM: pair=${decision.pair} margin=${margin} lev=${leverage} baseQty=${baseQty} midPrice=${midPrice} account=${accountName} exchange=${exchange}`);
     const response = await treadApi.submitMmOrder({
       pair: decision.pair,
+      base_qty: baseQty,
       margin,
       duration,
       leverage,
@@ -66,23 +113,33 @@ export async function executeMm(
       alpha_tilt: decision.alpha_tilt || 0,
       notes: decision.reasoning.slice(0, 500),
       account_name: accountName,
+      exchange,
     });
 
     const multiOrderId = String(response.id || '');
+    console.log(`[Executor] MM order created: ${multiOrderId}`);
 
-    // Apply spread config
-    const refPrice = decision.reference_price || 'mid';
+    // Apply spread config (refPrice already set above for multiplier calc)
     const applySpread = spreadBps;
+
+    // Build signal_name for RSI signal mode: #RSI_<BASE>-USDT@<exchange>
+    let signalName: string | undefined;
+    if (refPrice === 'signal') {
+      const base = decision.pair.replace(/-USD[T]?$/i, '');
+      signalName = `#RSI_${base}-USDT@Binance`;
+    }
+
     try {
       await treadApi.changeMmSpread({
         multi_order_id: multiOrderId,
         spread_bps: applySpread,
         reference_price: refPrice,
-        grid_stop_loss_percent: ['grid', 'reverse_grid'].includes(refPrice) ? 10 : null,
-        grid_take_profit_percent: ['grid', 'reverse_grid'].includes(refPrice) ? (decision.grid_take_profit_pct ?? null) : null,
+        grid_stop_loss_percent: ['grid', 'reverse_grid', 'signal'].includes(refPrice) ? 10 : null,
+        grid_take_profit_percent: ['grid', 'reverse_grid', 'signal'].includes(refPrice) ? (decision.grid_take_profit_pct ?? null) : null,
+        signal_name: signalName,
       });
-    } catch {
-      // non-fatal
+    } catch (e) {
+      console.error(`[Executor] changeMmSpread failed (non-fatal):`, e);
     }
 
     // Record in DB
@@ -102,13 +159,15 @@ export async function executeMm(
         alpha_tilt: decision.alpha_tilt,
         grid_take_profit_pct: decision.grid_take_profit_pct,
         account_name: accountName,
+        ...(signalName ? { signal_name: signalName } : {}),
       }),
       source: 'treadmagotchi',
       timestamp: Date.now(),
     });
 
     return response;
-  } catch {
+  } catch (err) {
+    console.error(`[Executor] submitMmOrder FAILED:`, err);
     return null;
   }
 }
@@ -145,24 +204,27 @@ export async function syncBotStatuses(): Promise<Array<Record<string, unknown>>>
 
     if (['completed', 'stop_loss', 'take_profit', 'canceled', 'failed'].includes(newStatus)) {
       let pnl = 0;
+      // Priority: on_complete_stats.net_pnl > order.realized_pnl > -fee_notional
       try {
-        const tca = await treadApi.getMultiOrderTca(trade.treadfi_id);
-        pnl = -Number(tca.fee_notional || 0);
+        const fullOrder = await treadApi.getMultiOrder(trade.treadfi_id);
+        const onComplete = fullOrder.on_complete_stats as Record<string, unknown> | undefined;
+        if (onComplete?.net_pnl != null) {
+          pnl = Number(onComplete.net_pnl);
+        } else if (fullOrder.realized_pnl != null) {
+          pnl = Number(fullOrder.realized_pnl);
+        } else if (order.realized_pnl != null || order.pnl != null) {
+          pnl = Number(order.realized_pnl ?? order.pnl ?? 0);
+        } else {
+          // Last resort: fetch TCA for fee as minimum cost
+          const tca = await treadApi.getMultiOrderTca(trade.treadfi_id);
+          pnl = -Number(tca.fee_notional || 0);
+        }
       } catch {
         pnl = Number(order.realized_pnl || order.pnl || 0);
       }
 
-      // Calculate volume from mm_params (margin * leverage * 2 for buy+sell sides)
-      let volume = 0;
-      try {
-        const params = typeof trade.mm_params === 'string' ? JSON.parse(trade.mm_params) : trade.mm_params;
-        const margin = Number(params?.margin || 0);
-        const leverage = Number(params?.leverage || 1);
-        volume = margin * leverage * 2; // both sides
-      } catch {
-        // fallback: use quantity as rough estimate
-        volume = trade.quantity * 2;
-      }
+      // Use actual executed_notional from Tread API (real filled volume)
+      const volume = Number(order.executed_notional || 0);
 
       if (trade.id != null) await db.saveTradeOutcome(trade.id, pnl);
       if (pnl < 0) riskManager.recordLoss(Math.abs(pnl));

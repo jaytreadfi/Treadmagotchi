@@ -97,8 +97,14 @@ export async function getAccountInfo(accountName?: string): Promise<AccountInfo>
     // fallback below
   }
 
-  const capital = Number(localStorage.getItem('initial_capital') || 100);
-  return { balance: capital, equity: capital, unrealized_pnl: 0, margin_used: 0 };
+  // Only use initial_capital fallback for the default account (UI display)
+  // For other accounts, return zero so trading engine skips them
+  const isDefault = !accountName || accountName === 'Paradex';
+  if (isDefault) {
+    const capital = Number(localStorage.getItem('initial_capital') || 100);
+    return { balance: capital, equity: capital, unrealized_pnl: 0, margin_used: 0 };
+  }
+  return { balance: 0, equity: 0, unrealized_pnl: 0, margin_used: 0 };
 }
 
 export async function getPositions(accountName?: string): Promise<Position[]> {
@@ -155,6 +161,7 @@ export async function getPositions(accountName?: string): Promise<Position[]> {
 
 export async function submitMmOrder(params: {
   pair: string;
+  base_qty: number;
   margin: number;
   duration: number;
   leverage: number;
@@ -163,11 +170,11 @@ export async function submitMmOrder(params: {
   alpha_tilt: number;
   notes: string;
   account_name: string;
+  exchange?: string;
 }): Promise<Record<string, unknown>> {
   const accountName = params.account_name;
-  const treadfiPair = pairToTreadfi(params.pair);
+  const treadfiPair = pairToTreadfi(params.pair, params.exchange);
 
-  // Only send margin + leverage. Tread calculates base_asset_qty from these.
   const payload: Record<string, unknown> = {
     accounts: [accountName],
     duration: Math.min(params.duration, 86400),
@@ -185,8 +192,8 @@ export async function submitMmOrder(params: {
     market_maker: true,
     notes: params.notes,
     child_orders: [
-      { accounts: [accountName], pair: treadfiPair, side: 'buy' },
-      { accounts: [accountName], pair: treadfiPair, side: 'sell' },
+      { accounts: [accountName], pair: treadfiPair, side: 'buy', base_asset_qty: params.base_qty },
+      { accounts: [accountName], pair: treadfiPair, side: 'sell', base_asset_qty: params.base_qty },
     ],
   };
 
@@ -203,6 +210,7 @@ export async function changeMmSpread(params: {
   reference_price: string;
   grid_stop_loss_percent?: number | null;
   grid_take_profit_percent?: number | null;
+  signal_name?: string;
 }): Promise<Record<string, unknown>> {
   const payload: Record<string, unknown> = {
     multi_order_id: params.multi_order_id,
@@ -211,6 +219,7 @@ export async function changeMmSpread(params: {
   };
   if (params.grid_stop_loss_percent != null) payload.grid_stop_loss_percent = params.grid_stop_loss_percent;
   if (params.grid_take_profit_percent != null) payload.grid_take_profit_percent = params.grid_take_profit_percent;
+  if (params.signal_name) payload.signal_name = params.signal_name;
 
   return request('POST', '/api/change_mm_spread/', undefined, payload) as Promise<Record<string, unknown>>;
 }

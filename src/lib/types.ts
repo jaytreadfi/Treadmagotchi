@@ -76,7 +76,7 @@ export interface AIDecision {
   schedule_discretion?: number;
   alpha_tilt?: number;
   grid_take_profit_pct?: number;
-  confidence?: string;
+  confidence?: number | string;
   reasoning: string;
 }
 
