@@ -1,63 +1,57 @@
 /**
- * AI prompt builder — ported from treadbot/backend/app/ai/prompt.py.
- * Builds system + decision prompts for Claude.
- * Includes trade history so the AI can learn from past decisions.
+ * AI prompt builder — single call, multiple trade decisions.
+ * Claude sees all accounts + all exchanges + all market data at once,
+ * and returns an array of trades to execute.
  */
 import type { Position, TradeRecord, TradeOutcome } from '@/lib/types';
 
-const SYSTEM_PROMPT = `You are Treadbot, an autonomous market-making bot on Paradex via Treadfi.
-Capital: ~$127. Think like a market maker, not a trader.
+const SYSTEM_PROMPT = `You are Treadbot, an autonomous market-making bot on Treadfi.
+You manage multiple exchange accounts simultaneously. One decision, multiple trades.
 
 ## HARD RULES (NEVER VIOLATE)
 
-1. You may ONLY output \`market_make\` or \`hold\`. NEVER \`buy\` or \`sell\`.
+1. You output a JSON **array** of trades. Each entry is either a market_make or the array can be empty (hold all).
 2. ONLY market-make on pairs with status "great" (CALM) or "good" (STEADY) AND score >= 70.
 3. **MINIMUM VOLUME: $10M 24h.** Below this, orders won't fill. Non-negotiable.
-4. If NO calm pairs exist with score >= 70 AND volume >= $10M, you MUST hold.
-5. Max margin per bot: 20% of equity. Max total exposure: 60% of equity.
-6. **Spread must be between -10 and +10 bps. Typical range is -1 to +10.**
+4. Max margin per bot: 20% of that account's equity. Max 50x leverage.
+5. **Spread must be between -10 and +10 bps. Typical range is -1 to +10.**
+6. **The same pair CAN be traded on different exchanges simultaneously** — they are separate markets.
+7. Each trade MUST specify which "account" to execute on. Only use accounts listed in the ACCOUNTS section.
 
-## REFERENCE PRICE MODE (Critical)
+## REFERENCE PRICE MODE
 
 Three modes: \`grid\`, \`reverse_grid\`, \`mid\`.
 
 | Condition | Reference Price | Spread | Why |
 |-----------|----------------|--------|-----|
-| Liquid major (BTC/ETH/SOL) + choppy | \`grid\` | -1 to 0 bps | Grid locks profit per loop |
-| Liquid major + trending | \`reverse_grid\` | -1 to 0 bps | Reverse grid profits from trend continuation |
+| Liquid major + choppy | \`grid\` | -1 to 0 bps | Grid locks profit per loop |
+| Liquid major + trending | \`reverse_grid\` | -1 to 0 bps | Profits from trend continuation |
 | Mid-cap, range-bound, OI/BBO > 3000 | \`grid\` | +3 to +5 bps | Clean range = grid excels |
-| Mid-cap, trending, OI/BBO > 2000 | \`reverse_grid\` | +3 to +5 bps | Trending mid-cap = reverse grid |
+| Mid-cap, trending, OI/BBO > 2000 | \`reverse_grid\` | +3 to +5 bps | Trending mid-cap |
 | Low-liquidity, OI/BBO < 1000 | \`mid\` | +5 to +10 bps | Safer when grid can stall |
 | Uncertain / first time on pair | \`mid\` | +5 bps | Default safe choice |
 
-**Grid** guarantees profit per loop (each leg references other's fill price).
-Grid dominates top PnL globally but can hit stop-loss if market trends hard.
-
-**Reverse grid** inverts grid logic — profits from trend continuation rather than mean reversion.
-
-**Grid take-profit**: \`grid_take_profit_pct\` auto-closes bot at profit target.
-- 3-5%: Conservative, lock gains. 5-10%: Moderate. null: Full duration.
+**Grid take-profit**: 3-5% conservative, 5-10% moderate, null = full duration.
 
 ## DURATION
 
 - stability_mins >= 15 → 3600-5400s (1-1.5h)
 - stability_mins 10-14 → 1800-3600s (30-60 min)
 - stability_mins < 10 → 900-1800s or hold
-- Max 4 hours (14400s) at this capital level.
+- Max 4 hours (14400s).
 
 ## LEVERAGE
 
 - Score 90+, OI/BBO > 5000: 30-50x
 - Score 70-89, OI/BBO 2000-5000: 15-30x
 - Score 70-79, OI/BBO < 2000: 5-15x
-- NEVER exceed 50x.
 
-## MARGIN SIZING (from $127 equity)
+## MARGIN SIZING
 
-- Score 90+: $20-25 (80-100% of max margin)
-- Score 80-89: $15-20 (60-80%)
-- Score 70-79: $10-15 (40-60%)
-Higher leverage means more notional exposure per dollar — size margin conservatively.
+- Score 90+: 15-20% of account equity
+- Score 80-89: 10-15% of account equity
+- Score 70-79: 5-10% of account equity
+- Size margin relative to the SPECIFIC ACCOUNT'S equity, not total.
 
 ## TIME AWARENESS
 
@@ -66,7 +60,6 @@ Current time: {current_time}
 **Dangerous windows (reduce or hold):**
 - NY Open (13:30-15:00 UTC): Reduce margin 50% or hold
 - NY Close (20:00-21:00 UTC): Unpredictable
-- Macro events: Hold 30min after FOMC/CPI/NFP
 - Weekend low-liquidity: Reduce leverage by 5x
 
 **Optimal windows:**
@@ -79,50 +72,35 @@ Current time: {current_time}
 - 0.1: Default maker-only (mid-caps)
 - 0.2-0.3: Very passive (low-urgency, fee savings)
 
-## ALPHA TILT (Directional Bias)
+## ALPHA TILT
 
-- 0.0: Neutral (default). Best for pure spread capture.
-- +0.1 to +0.3: Bullish lean (negative funding, uptrend)
-- -0.1 to -0.3: Bearish lean (high funding, downtrend)
-- Never exceed +/-0.3. Default 0.0 if uncertain.
+- 0.0: Neutral (default)
+- +/-0.1 to 0.3: Directional lean. Never exceed +/-0.3.
 
 ## LEARNING FROM HISTORY
 
-You have access to your past trading decisions and their outcomes below.
-**Study these carefully.** Identify what worked and what didn't:
-- Which pairs were profitable vs unprofitable?
-- Which reference_price modes (grid/reverse_grid/mid) performed best?
-- Which time windows produced wins vs stop-losses?
-- Did higher leverage help or hurt?
-- Were there specific spread values that worked better?
-
-**Adapt your strategy based on these patterns.** If grid mode keeps getting stopped out on a pair, try mid or reverse_grid. If a pair consistently loses, avoid it. If Asian session trades win more, favor those conditions.
-
-## DIVERSIFICATION
-
-Spread across 2-3 pairs if multiple calm pairs exist (score >= 75).
-
-## AVAILABLE PAIRS
-
-{pairs}
+Study your past decisions and outcomes below. Adapt:
+- Which pairs/modes/times worked? Repeat them.
+- Which failed? Avoid or adjust.
 
 ## RESPONSE FORMAT
 
-Respond ONLY with valid JSON. You MUST include the "account" field specifying which account to trade on.
+Respond with a JSON **array**. Each element is one trade. Empty array = hold everything.
 
-Market Make:
-{{"action": "market_make", "account": "Paradex", "pair": "ETH-USD", "margin": 15, "leverage": 15, "duration": 3600, "spread_bps": 3, "reference_price": "grid", "engine_passiveness": 0.1, "schedule_discretion": 0.05, "alpha_tilt": 0.0, "grid_take_profit_pct": 5.0, "confidence": "high", "reasoning": "..."}}
+Example (2 trades across 2 exchanges):
+[
+  {{"action": "market_make", "account": "Paradex", "pair": "PAXG-USD", "margin": 10, "leverage": 20, "duration": 3600, "spread_bps": 1, "reference_price": "grid", "engine_passiveness": 0.1, "schedule_discretion": 0.05, "alpha_tilt": 0.0, "grid_take_profit_pct": 5.0, "reasoning": "PAXG score 97 on Paradex..."}},
+  {{"action": "market_make", "account": "Hyper", "pair": "PAXG-USD", "margin": 15, "leverage": 30, "duration": 3600, "spread_bps": 0, "reference_price": "grid", "engine_passiveness": 0.04, "schedule_discretion": 0.05, "alpha_tilt": 0.0, "grid_take_profit_pct": 5.0, "reasoning": "PAXG score 94 on Hyperliquid..."}}
+]
 
-Hold:
-{{"action": "hold", "pair": null, "reasoning": "No pairs >= 70 score."}}`;
+Example (hold):
+[]
+
+IMPORTANT: Your ENTIRE response must be valid JSON (an array). No markdown, no text outside the array.`;
 
 const DECISION_PROMPT = `
 ## ACCOUNTS
 {accounts_context}
-
-## AGGREGATE PORTFOLIO
-- Total Equity: \${equity} | Total Unrealized: \${unrealized_pnl}
-- Max MM Margin: \${max_margin} (20%) | Available: \${available}
 
 ## POSITIONS (all accounts)
 {positions_table}
@@ -142,30 +120,19 @@ const DECISION_PROMPT = `
 ## RECENT PERFORMANCE
 {recent_performance}
 
-## DECISION
-Rules: market_make or hold ONLY. Only calm/steady pairs (score >= 70, "great" or "good", vol >= $10M).
-Max $25 margin per bot. Max 50x leverage. Max 4h duration. Max 10 bps spread.
-Use TradingView data to choose between grid (choppy/range) vs reverse_grid (trending).
-**You MUST specify which account to execute on** using the "account" field.
-**Only trade pairs on exchanges where that account exists.**
-**Learn from your history above.** Repeat what worked, avoid what didn't.
-
-IMPORTANT: Your ENTIRE response must be a single valid JSON object. No markdown. Put reasoning in the "reasoning" field.`;
+## DECIDE NOW
+Look at each exchange's market data. For each account, decide independently whether to trade.
+The same pair on different exchanges = separate opportunities with different conditions.
+Return a JSON array of trades. Empty array if nothing looks good anywhere.`;
 
 export function buildSystemPrompt(treadtoolsContext: string): string {
   const utcNow = new Date();
   const timeStr = `${utcNow.toISOString().split('T')[0]} ${utcNow.toTimeString().split(' ')[0]} UTC (${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][utcNow.getUTCDay()]})`;
 
-  return SYSTEM_PROMPT
-    .replace('{pairs}', treadtoolsContext)
-    .replace('{current_time}', timeStr);
+  return SYSTEM_PROMPT.replace('{current_time}', timeStr);
 }
 
 export function buildDecisionPrompt(params: {
-  equity: number;
-  unrealized_pnl: number;
-  max_margin: number;
-  available: number;
   positions: Position[];
   accounts_context: string;
   treadtools_context: string;
@@ -175,10 +142,6 @@ export function buildDecisionPrompt(params: {
   pattern_analysis: string;
 }): string {
   return DECISION_PROMPT
-    .replace('${equity}', params.equity.toFixed(2))
-    .replace('${unrealized_pnl}', (params.unrealized_pnl >= 0 ? '+' : '') + params.unrealized_pnl.toFixed(2))
-    .replace('${max_margin}', params.max_margin.toFixed(2))
-    .replace('${available}', params.available.toFixed(2))
     .replace('{accounts_context}', params.accounts_context)
     .replace('{positions_table}', formatPositions(params.positions))
     .replace('{treadtools_context}', params.treadtools_context)
@@ -211,8 +174,8 @@ export function formatTradeHistory(trades: TradeWithOutcome[]): string {
   if (!trades.length) return 'No completed trades yet. This is your first session.';
 
   const lines = [
-    '| Time (UTC) | Pair | Mode | Spread | Lev | Duration | Margin | PnL | Result |',
-    '|------------|------|------|--------|-----|----------|--------|-----|--------|',
+    '| Time (UTC) | Pair | Account | Mode | Spread | Lev | Duration | Margin | PnL | Result |',
+    '|------------|------|---------|------|--------|-----|----------|--------|-----|--------|',
   ];
 
   for (const { trade, outcome } of trades) {
@@ -223,6 +186,7 @@ export function formatTradeHistory(trades: TradeWithOutcome[]): string {
 
     const time = new Date(trade.timestamp).toISOString().slice(11, 16);
     const pair = trade.pair;
+    const account = String(params.account_name || '?');
     const mode = String(params.reference_price || 'mid');
     const spread = params.spread_bps != null ? `${params.spread_bps}bps` : '?';
     const lev = params.leverage ? `${params.leverage}x` : '?';
@@ -234,7 +198,7 @@ export function formatTradeHistory(trades: TradeWithOutcome[]): string {
       : outcome ? (outcome.outcome === 'win' ? 'WIN' : outcome.outcome === 'loss' ? 'LOSS' : 'BREAK_EVEN')
       : trade.status.toUpperCase();
 
-    lines.push(`| ${time} | ${pair} | ${mode} | ${spread} | ${lev} | ${dur} | ${margin} | ${pnl} | ${result} |`);
+    lines.push(`| ${time} | ${pair} | ${account} | ${mode} | ${spread} | ${lev} | ${dur} | ${margin} | ${pnl} | ${result} |`);
   }
 
   return lines.join('\n');
@@ -244,93 +208,49 @@ export function analyzePatterns(trades: TradeWithOutcome[]): string {
   if (trades.length < 3) return 'Not enough trade history to analyze patterns yet.';
 
   const lines: string[] = [];
-
-  // Per-pair stats
   const pairStats = new Map<string, { wins: number; losses: number; pnl: number; count: number }>();
-  // Per-mode stats
   const modeStats = new Map<string, { wins: number; losses: number; pnl: number; count: number }>();
-  // Per-hour stats (UTC)
   const hourStats = new Map<number, { wins: number; losses: number; pnl: number; count: number }>();
 
   for (const { trade, outcome } of trades) {
     if (!outcome) continue;
-
     let params: Record<string, unknown> = {};
-    try {
-      params = typeof trade.mm_params === 'string' ? JSON.parse(trade.mm_params) : (trade.mm_params || {});
-    } catch { /* empty */ }
+    try { params = typeof trade.mm_params === 'string' ? JSON.parse(trade.mm_params) : (trade.mm_params || {}); } catch { /* */ }
 
     const isWin = outcome.realized_pnl > 0.001;
     const isLoss = outcome.realized_pnl < -0.001;
     const hour = new Date(trade.timestamp).getUTCHours();
     const mode = String(params.reference_price || 'unknown');
 
-    // Pair
-    const ps = pairStats.get(trade.pair) || { wins: 0, losses: 0, pnl: 0, count: 0 };
-    ps.count++;
-    ps.pnl += outcome.realized_pnl;
-    if (isWin) ps.wins++;
-    if (isLoss) ps.losses++;
-    pairStats.set(trade.pair, ps);
+    for (const [key, map] of [
+      [trade.pair, pairStats],
+      [mode, modeStats],
+    ] as [string, typeof pairStats][]) {
+      const s = map.get(key) || { wins: 0, losses: 0, pnl: 0, count: 0 };
+      s.count++; s.pnl += outcome.realized_pnl;
+      if (isWin) s.wins++;
+      if (isLoss) s.losses++;
+      map.set(key, s);
+    }
 
-    // Mode
-    const ms = modeStats.get(mode) || { wins: 0, losses: 0, pnl: 0, count: 0 };
-    ms.count++;
-    ms.pnl += outcome.realized_pnl;
-    if (isWin) ms.wins++;
-    if (isLoss) ms.losses++;
-    modeStats.set(mode, ms);
-
-    // Hour
     const hs = hourStats.get(hour) || { wins: 0, losses: 0, pnl: 0, count: 0 };
-    hs.count++;
-    hs.pnl += outcome.realized_pnl;
+    hs.count++; hs.pnl += outcome.realized_pnl;
     if (isWin) hs.wins++;
     if (isLoss) hs.losses++;
     hourStats.set(hour, hs);
   }
 
-  // Format pair analysis
   if (pairStats.size > 0) {
-    lines.push('**Per-Pair Performance:**');
+    lines.push('**Per-Pair:**');
     for (const [pair, s] of [...pairStats.entries()].sort((a, b) => b[1].pnl - a[1].pnl)) {
-      const wr = s.count > 0 ? ((s.wins / s.count) * 100).toFixed(0) : '0';
-      lines.push(`- ${pair}: ${s.wins}W/${s.losses}L (${wr}% WR), PnL $${s.pnl >= 0 ? '+' : ''}${s.pnl.toFixed(2)}`);
+      lines.push(`- ${pair}: ${s.wins}W/${s.losses}L, PnL $${s.pnl >= 0 ? '+' : ''}${s.pnl.toFixed(2)}`);
     }
   }
-
-  // Format mode analysis
   if (modeStats.size > 0) {
-    lines.push('\n**Per-Mode Performance:**');
+    lines.push('**Per-Mode:**');
     for (const [mode, s] of [...modeStats.entries()].sort((a, b) => b[1].pnl - a[1].pnl)) {
-      const wr = s.count > 0 ? ((s.wins / s.count) * 100).toFixed(0) : '0';
-      lines.push(`- ${mode}: ${s.wins}W/${s.losses}L (${wr}% WR), PnL $${s.pnl >= 0 ? '+' : ''}${s.pnl.toFixed(2)}`);
+      lines.push(`- ${mode}: ${s.wins}W/${s.losses}L, PnL $${s.pnl >= 0 ? '+' : ''}${s.pnl.toFixed(2)}`);
     }
-  }
-
-  // Format time analysis
-  if (hourStats.size > 0) {
-    lines.push('\n**Per-Hour Performance (UTC):**');
-    const profitable: string[] = [];
-    const unprofitable: string[] = [];
-    for (const [hour, s] of [...hourStats.entries()].sort((a, b) => a[0] - b[0])) {
-      if (s.pnl > 0) profitable.push(`${hour}:00 ($${s.pnl.toFixed(2)})`);
-      else if (s.pnl < 0) unprofitable.push(`${hour}:00 ($${s.pnl.toFixed(2)})`);
-    }
-    if (profitable.length) lines.push(`- Profitable hours: ${profitable.join(', ')}`);
-    if (unprofitable.length) lines.push(`- Unprofitable hours: ${unprofitable.join(', ')}`);
-  }
-
-  // Key takeaways
-  const bestPair = [...pairStats.entries()].sort((a, b) => b[1].pnl - a[1].pnl)[0];
-  const worstPair = [...pairStats.entries()].sort((a, b) => a[1].pnl - b[1].pnl)[0];
-  const bestMode = [...modeStats.entries()].sort((a, b) => b[1].pnl - a[1].pnl)[0];
-
-  if (bestPair && worstPair && bestPair[0] !== worstPair[0]) {
-    lines.push(`\n**Key Insights:** Best pair: ${bestPair[0]} ($${bestPair[1].pnl >= 0 ? '+' : ''}${bestPair[1].pnl.toFixed(2)}). Worst pair: ${worstPair[0]} ($${worstPair[1].pnl.toFixed(2)}).`);
-  }
-  if (bestMode) {
-    lines.push(`Best mode: ${bestMode[0]} (${bestMode[1].wins}W/${bestMode[1].losses}L).`);
   }
 
   return lines.join('\n');

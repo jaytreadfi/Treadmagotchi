@@ -1,6 +1,5 @@
 /**
- * Claude API client — ported from treadbot/backend/app/ai/engine.py.
- * Calls Anthropic Messages API through /api/proxy/claude.
+ * Claude API client — single call returns array of trade decisions.
  */
 import { PROXY_BASE, CLAUDE_MODEL } from '@/lib/constants';
 import type { AIDecision } from '@/lib/types';
@@ -10,13 +9,14 @@ function getAnthropicKey(): string {
   return localStorage.getItem('anthropic_api_key') || '';
 }
 
-export async function getDecision(
+/** Returns an array of decisions (empty = hold all). */
+export async function getDecisions(
   systemPrompt: string,
   userPrompt: string,
-): Promise<AIDecision> {
+): Promise<AIDecision[]> {
   const apiKey = getAnthropicKey();
   if (!apiKey) {
-    return { action: 'hold', reasoning: 'No Anthropic API key configured. Using rule-based fallback.' };
+    return []; // no key = fallback handled by caller
   }
 
   try {
@@ -28,7 +28,7 @@ export async function getDecision(
       },
       body: JSON.stringify({
         model: CLAUDE_MODEL,
-        max_tokens: 1024,
+        max_tokens: 2048,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       }),
@@ -36,59 +36,79 @@ export async function getDecision(
 
     if (!res.ok) {
       const text = await res.text();
-      if (text.toLowerCase().includes('credit balance') || text.toLowerCase().includes('billing')) {
-        return { action: 'hold', reasoning: 'Anthropic API credits exhausted.' };
-      }
-      return { action: 'hold', reasoning: `AI unavailable: HTTP ${res.status}` };
+      console.error('[ClaudeAPI] Error:', res.status, text.slice(0, 200));
+      return [];
     }
 
     const data = await res.json();
     const raw = data.content?.[0]?.text?.trim();
-    if (!raw) {
-      return { action: 'hold', reasoning: 'Empty AI response' };
-    }
+    if (!raw) return [];
 
-    const parsed = parseJson(raw);
+    const parsed = parseJsonArray(raw);
     if (!parsed) {
-      return { action: 'hold', reasoning: 'Failed to parse AI response' };
+      console.error('[ClaudeAPI] Failed to parse response as array:', raw.slice(0, 300));
+      return [];
     }
 
-    return {
-      action: parsed.action === 'market_make' ? 'market_make' : 'hold',
-      account: parsed.account as string | undefined,
-      pair: parsed.pair as string | undefined,
-      margin: parsed.margin as number | undefined,
-      leverage: parsed.leverage as number | undefined,
-      duration: parsed.duration as number | undefined,
-      spread_bps: parsed.spread_bps as number | undefined,
-      reference_price: parsed.reference_price as string | undefined,
-      engine_passiveness: parsed.engine_passiveness as number | undefined,
-      schedule_discretion: parsed.schedule_discretion as number | undefined,
-      alpha_tilt: parsed.alpha_tilt as number | undefined,
-      grid_take_profit_pct: parsed.grid_take_profit_pct as number | undefined,
-      confidence: parsed.confidence as string | undefined,
-      reasoning: String(parsed.reasoning || ''),
-    };
+    return parsed.map((item): AIDecision => ({
+      action: item.action === 'market_make' ? 'market_make' : 'hold',
+      account: item.account as string | undefined,
+      pair: item.pair as string | undefined,
+      margin: item.margin as number | undefined,
+      leverage: item.leverage as number | undefined,
+      duration: item.duration as number | undefined,
+      spread_bps: item.spread_bps as number | undefined,
+      reference_price: item.reference_price as string | undefined,
+      engine_passiveness: item.engine_passiveness as number | undefined,
+      schedule_discretion: item.schedule_discretion as number | undefined,
+      alpha_tilt: item.alpha_tilt as number | undefined,
+      grid_take_profit_pct: item.grid_take_profit_pct as number | undefined,
+      confidence: item.confidence as string | undefined,
+      reasoning: String(item.reasoning || ''),
+    }));
   } catch (err) {
-    return { action: 'hold', reasoning: `AI error: ${err instanceof Error ? err.message : 'Unknown'}` };
+    console.error('[ClaudeAPI] Exception:', err);
+    return [];
   }
 }
 
-function parseJson(text: string): Record<string, unknown> | null {
+function parseJsonArray(text: string): Array<Record<string, unknown>> | null {
   // Direct parse
-  try { return JSON.parse(text); } catch { /* continue */ }
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return parsed;
+    // Single object → wrap in array
+    if (typeof parsed === 'object' && parsed !== null) return [parsed];
+  } catch { /* continue */ }
 
   // Markdown code block
   const fenceMatch = text.match(/```(?:json)?\s*\n?(.*?)\n?```/s);
   if (fenceMatch) {
-    try { return JSON.parse(fenceMatch[1].trim()); } catch { /* continue */ }
+    try {
+      const parsed = JSON.parse(fenceMatch[1].trim());
+      if (Array.isArray(parsed)) return parsed;
+      if (typeof parsed === 'object' && parsed !== null) return [parsed];
+    } catch { /* continue */ }
   }
 
-  // First { to last }
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start !== -1 && end > start) {
-    try { return JSON.parse(text.slice(start, end + 1)); } catch { /* continue */ }
+  // First [ to last ]
+  const arrStart = text.indexOf('[');
+  const arrEnd = text.lastIndexOf(']');
+  if (arrStart !== -1 && arrEnd > arrStart) {
+    try {
+      const parsed = JSON.parse(text.slice(arrStart, arrEnd + 1));
+      if (Array.isArray(parsed)) return parsed;
+    } catch { /* continue */ }
+  }
+
+  // First { to last } (single object fallback)
+  const objStart = text.indexOf('{');
+  const objEnd = text.lastIndexOf('}');
+  if (objStart !== -1 && objEnd > objStart) {
+    try {
+      const parsed = JSON.parse(text.slice(objStart, objEnd + 1));
+      if (typeof parsed === 'object') return [parsed];
+    } catch { /* continue */ }
   }
 
   return null;

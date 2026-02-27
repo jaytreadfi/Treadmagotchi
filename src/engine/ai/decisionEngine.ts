@@ -1,16 +1,13 @@
 /**
- * Decision engine — tries Claude first, falls back to rule-based.
+ * Decision engine — one Claude call returns multiple trades.
+ * Falls back to rule-based if no API key or Claude fails.
  */
-import { getDecision } from '@/clients/claudeApi';
+import { getDecisions } from '@/clients/claudeApi';
 import { getRuleBasedDecision } from './ruleBasedFallback';
 import { buildSystemPrompt, buildDecisionPrompt } from './promptBuilder';
 import type { AIDecision, Position, RiskMetrics, TreadtoolsSnapshot } from '@/lib/types';
 
-export async function makeDecision(params: {
-  equity: number;
-  unrealizedPnl: number;
-  maxMargin: number;
-  available: number;
+export async function makeDecisions(params: {
   positions: Position[];
   accountsContext: string;
   treadtoolsContext: string;
@@ -20,15 +17,12 @@ export async function makeDecision(params: {
   patternAnalysis: string;
   snapshot: TreadtoolsSnapshot | null;
   metrics: RiskMetrics;
-}): Promise<AIDecision> {
+  totalEquity: number;
+}): Promise<AIDecision[]> {
   // Try Claude first
   try {
     const system = buildSystemPrompt(params.treadtoolsContext);
     const user = buildDecisionPrompt({
-      equity: params.equity,
-      unrealized_pnl: params.unrealizedPnl,
-      max_margin: params.maxMargin,
-      available: params.available,
       positions: params.positions,
       accounts_context: params.accountsContext,
       treadtools_context: params.treadtoolsContext,
@@ -38,15 +32,20 @@ export async function makeDecision(params: {
       pattern_analysis: params.patternAnalysis,
     });
 
-    const decision = await getDecision(system, user);
+    const decisions = await getDecisions(system, user);
 
-    if (decision.action === 'market_make' || decision.reasoning !== 'No Anthropic API key configured. Using rule-based fallback.') {
-      return decision;
-    }
+    // If Claude returned trades, use them
+    if (decisions.length > 0) return decisions;
+
+    // Empty array from Claude = intentional hold, don't fallback
+    // But if no API key was set, getDecisions returns [] and we should fallback
+    const hasKey = typeof window !== 'undefined' && localStorage.getItem('anthropic_api_key');
+    if (hasKey) return []; // Claude said hold
   } catch {
     // Fall through to rule-based
   }
 
-  // Fallback
-  return getRuleBasedDecision(params.snapshot, params.metrics, params.equity);
+  // Fallback: single rule-based decision
+  const fallback = getRuleBasedDecision(params.snapshot, params.metrics, params.totalEquity);
+  return fallback.action === 'market_make' ? [fallback] : [];
 }
