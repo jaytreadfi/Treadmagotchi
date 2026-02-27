@@ -8,6 +8,7 @@ import EvolutionProgress from '@/components/ui/EvolutionProgress';
 import ModeToggle from '@/components/ui/ModeToggle';
 import ActionButtons from '@/components/ui/ActionButtons';
 import ActiveBots from '@/components/trading/ActiveBots';
+import DecisionCountdown from '@/components/trading/DecisionCountdown';
 import PnLDisplay from '@/components/trading/PnLDisplay';
 import SettingsPanel from '@/components/screens/SettingsPanel';
 import StatsScreen from '@/components/screens/StatsScreen';
@@ -32,6 +33,7 @@ export default function GameScreen() {
   return (
     <div className="min-h-screen bg-pixel-bg flex flex-col">
       <StatusBar />
+      <DecisionCountdown />
 
       {/* Main pet area */}
       <div className="flex-1 flex flex-col items-center justify-center gap-4 py-4">
