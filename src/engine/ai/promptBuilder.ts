@@ -12,8 +12,8 @@ Capital: ~$127. Think like a market maker, not a trader.
 
 1. You may ONLY output \`market_make\` or \`hold\`. NEVER \`buy\` or \`sell\`.
 2. ONLY market-make on pairs with status "great" AND score >= 70.
-3. **MINIMUM VOLUME: $20M 24h.** Below this, orders won't fill. Non-negotiable.
-4. If NO calm pairs exist with score >= 70 AND volume >= $20M, you MUST hold.
+3. **MINIMUM VOLUME: $10M 24h.** Below this, orders won't fill. Non-negotiable.
+4. If NO calm pairs exist with score >= 70 AND volume >= $10M, you MUST hold.
 5. Max margin per bot: 20% of equity. Max total exposure: 60% of equity.
 6. **Spread must be between -10 and +10 bps. Typical range is -1 to +10.**
 
@@ -140,7 +140,7 @@ const DECISION_PROMPT = `
 {recent_performance}
 
 ## DECISION
-Rules: market_make or hold ONLY. Only calm pairs (score >= 70, "great", vol >= $20M).
+Rules: market_make or hold ONLY. Only calm pairs (score >= 70, "great", vol >= $10M).
 Max $25 margin per bot. Max 50x leverage. Max 4h duration. Max 10 bps spread.
 Use TradingView data to choose between grid (choppy/range) vs reverse_grid (trending).
 **Learn from your history above.** Repeat what worked, avoid what didn't.

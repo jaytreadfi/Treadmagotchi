@@ -124,7 +124,7 @@ export function toContextString(snapshot: TreadtoolsSnapshot | null): string {
   }
 
   if (lowVol.length) {
-    lines.push('\n### LOW VOLUME (< $20M)');
+    lines.push('\n### LOW VOLUME (< $10M)');
     lowVol.forEach((m) => {
       lines.push(`- ${m.symbol}: score ${m.score}, vol $${(m.volume / 1e6).toFixed(1)}M — TOO LOW`);
     });

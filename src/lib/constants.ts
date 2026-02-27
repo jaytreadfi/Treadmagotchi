@@ -9,7 +9,7 @@ export const STOP_LOSS_PCT = 0.10;
 export const MAX_LEVERAGE = 50;
 export const MAX_SPREAD_BPS = 10;
 export const MAX_MM_DURATION = 14400;
-export const MIN_VOLUME = 20_000_000;
+export const MIN_VOLUME = 10_000_000;
 
 // ── Trading intervals (ms) ──
 export const DECISION_INTERVAL_MS = 5 * 60 * 1000;     // 5 min

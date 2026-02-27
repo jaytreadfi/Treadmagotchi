@@ -20,7 +20,7 @@ export function getRuleBasedDecision(
     .sort((a, b) => b.score - a.score);
 
   if (!eligible.length) {
-    return { action: 'hold', reasoning: `No calm pairs with score >= ${TREADTOOLS_MIN_SCORE} and volume >= $20M.` };
+    return { action: 'hold', reasoning: `No calm pairs with score >= ${TREADTOOLS_MIN_SCORE} and volume >= $10M.` };
   }
 
   const best = eligible[0];
