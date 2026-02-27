@@ -72,7 +72,11 @@ export function getRuleBasedDecision(
     schedule_discretion: 0.05,
     alpha_tilt: 0,
     grid_take_profit_pct: referencePrice === 'grid' ? 5 : undefined,
-    confidence: 'medium',
-    reasoning: `Rule-based: ${symbol} score=${best.score} oi_bbo=${best.oi_bbo.toFixed(0)} vol=$${(best.volume / 1e6).toFixed(1)}M → ${referencePrice} ${spreadBps}bps ${leverage}x`,
+    confidence: best.score >= 90 ? 0.85 : best.score >= 80 ? 0.75 : 0.6,
+    reasoning: best.score >= 90
+      ? `*sniffs around* ooh ${symbol} is looking TASTY! score ${best.score} with OI/BBO $${best.oi_bbo.toFixed(0)} - that book is THICC *wags tail*! going ${referencePrice} cuz ${best.stability_mins >= 10 ? `stability at ${best.stability_mins}min means price is bouncing nicely` : 'conditions are decent enough to trade'}. ${spreadBps}bps spread ${spreadBps <= 1 ? 'to stay tight with this liquid book' : 'for a comfy cushion'}. ${leverage}x leverage - with depth like this i can handle it!! $${margin.toFixed(0)} margin (${(marginPct * 100).toFixed(0)}% equity) - high conviction play *bounces excitedly* vol $${(best.volume / 1e6).toFixed(1)}M means fills should be yummy :3${referencePrice === 'grid' ? ' TP at 5% to lock in the nom noms!' : ''}`
+      : best.score >= 80
+        ? `*peeks at ${symbol}* hmm score ${best.score}, OI/BBO $${best.oi_bbo.toFixed(0)} - decent book depth! going ${referencePrice} mode ${best.oi_bbo >= 3000 ? 'since depth supports grid oscillations' : 'to play it safe with mid quoting'}. ${spreadBps}bps spread for balanced positioning, ${leverage}x lev matches the moderate conditions. $${margin.toFixed(0)} margin (${(marginPct * 100).toFixed(0)}% equity) - solid but not going crazy. vol $${(best.volume / 1e6).toFixed(1)}M *nods approvingly*${referencePrice === 'grid' ? ' TP at 5% ~' : ''}`
+        : `*cautiously approaches ${symbol}* score ${best.score}, OI/BBO $${best.oi_bbo.toFixed(0)} - book is a bit thin so being careful >.<  going ${referencePrice} mode with ${spreadBps}bps spread for extra cushion. only ${leverage}x leverage and $${margin.toFixed(0)} margin (${(marginPct * 100).toFixed(0)}% equity) - small and careful! ${best.stability_mins >= 10 ? `stability at ${best.stability_mins}min is ok for ${duration >= 1800 ? '30min' : '15min'} duration` : `stability only ${best.stability_mins}min so keeping duration short at ${duration >= 1800 ? '30min' : '15min'}`}. vol $${(best.volume / 1e6).toFixed(1)}M *tippy taps nervously*`,
   };
 }

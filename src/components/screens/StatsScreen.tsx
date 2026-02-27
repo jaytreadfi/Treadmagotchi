@@ -61,20 +61,41 @@ export default function StatsScreen({ onClose }: StatsScreenProps) {
         {decisionLog.length === 0 && (
           <div className="text-[8px] opacity-30 text-center py-4">No decisions yet</div>
         )}
-        {[...decisionLog].reverse().slice(0, 10).map((d, i) => (
-          <div key={i} className="bg-pixel-dark/50 rounded p-2 text-[7px]">
-            <div className="flex justify-between mb-1">
-              <span className={d.action === 'market_make' ? 'text-pixel-green' : 'text-pixel-yellow'}>
-                {d.action.toUpperCase()}
-              </span>
-              <span className="opacity-30">
-                {new Date(d.timestamp).toLocaleTimeString()}
-              </span>
+        {[...decisionLog].reverse().slice(0, 10).map((d, i) => {
+          // Parse "[Account · mode · levx · $margin] reasoning" prefix for market_make
+          const metaMatch = d.action === 'market_make'
+            ? d.reasoning.match(/^\[([^\]]+·[^\]]+)\]\s*([\s\S]*)$/)
+            : null;
+          const metaParts = metaMatch?.[1]?.split(' · ') || [];
+          const reasoningBody = metaMatch ? metaMatch[2] : d.reasoning;
+          const account = metaParts[0];
+          const mode = metaParts[1];
+          const lev = metaParts[2];
+          const margin = metaParts[3];
+
+          return (
+            <div key={i} className="bg-pixel-dark/50 rounded p-2 text-[7px]">
+              <div className="flex justify-between mb-1">
+                <span className={d.action === 'market_make' ? 'text-pixel-green' : 'text-pixel-yellow'}>
+                  {d.action.toUpperCase()}
+                </span>
+                <span className="opacity-30">
+                  {new Date(d.timestamp).toLocaleTimeString()}
+                </span>
+              </div>
+              {d.pair && <div className="text-pixel-blue">{d.pair}</div>}
+              {d.action === 'market_make' && metaParts.length >= 2 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {account && <span className="bg-pixel-accent/20 text-pixel-accent px-1 rounded">{account}</span>}
+                  {mode && <span className="bg-pixel-blue/20 text-pixel-blue px-1 rounded">{mode}</span>}
+                  {lev && <span className="bg-pixel-yellow/20 text-pixel-yellow px-1 rounded">{lev}</span>}
+                  {margin && <span className="bg-pixel-green/20 text-pixel-green px-1 rounded">{margin}</span>}
+                </div>
+              )}
+              <div className="opacity-50 mt-1">{reasoningBody}</div>
             </div>
-            {d.pair && <div className="text-pixel-blue">{d.pair}</div>}
-            <div className="opacity-50 mt-1 line-clamp-2">{d.reasoning}</div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

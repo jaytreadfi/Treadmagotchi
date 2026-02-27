@@ -267,7 +267,7 @@ export async function runTradingLoop(): Promise<void> {
         timestamp: new Date().toISOString(),
         action: 'market_make',
         pair: decision.pair,
-        reasoning: `[${acct.name}] ${decision.reasoning}`,
+        reasoning: `[${acct.name} · ${decision.reference_price || 'mid'} · ${decision.leverage || 0}x · $${decision.margin || 0}] ${decision.reasoning}`,
         active_pairs: allActivePairs,
         calm_pairs: lastSnapshot?.calm_pairs || [],
         portfolio: { balance: aggregateAccount.balance, equity: totalEquity, unrealized_pnl: totalUnrealizedPnl, exposure_pct: metrics.exposure_pct },
