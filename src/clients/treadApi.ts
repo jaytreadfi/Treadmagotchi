@@ -3,16 +3,21 @@
  * All requests go through /api/proxy/tread to handle CORS + WAF.
  */
 import { PROXY_BASE, pairToTreadfi, treadfiToPair } from '@/lib/constants';
-import type { Position, AccountInfo } from '@/lib/types';
+import type { Position, AccountInfo, TreadAccount } from '@/lib/types';
 
 function getToken(): string {
   if (typeof window === 'undefined') return '';
   return localStorage.getItem('treadfi_api_key') || '';
 }
 
-function getAccountName(): string {
-  if (typeof window === 'undefined') return 'Paradex';
-  return localStorage.getItem('treadfi_account_name') || 'Paradex';
+/** Resolve exchange name to TreadTools endpoint name */
+function exchangeToTreadtools(exchange: string): string {
+  const ex = exchange.toLowerCase();
+  if (ex.includes('paradex')) return 'paradex';
+  if (ex.includes('hyperliquid')) return 'hyperliquid';
+  if (ex.includes('bybit')) return 'bybit';
+  if (ex.includes('extended')) return 'hyperliquid'; // Extended = Hyperliquid extended
+  return ex;
 }
 
 async function request(method: string, path: string, params?: Record<string, string>, body?: unknown): Promise<unknown> {
@@ -46,17 +51,17 @@ async function request(method: string, path: string, params?: Record<string, str
 
 // ── Account & Balance ──
 
-export async function getCachedBalances(): Promise<Record<string, unknown>> {
-  const accountName = getAccountName();
+export async function getCachedBalances(accountName?: string): Promise<Record<string, unknown>> {
+  const name = accountName || 'Paradex';
   return request('GET', '/api/sor/get_cached_account_balance', {
-    account_names: accountName,
+    account_names: name,
   }) as Promise<Record<string, unknown>>;
 }
 
-export async function getAccountInfo(): Promise<AccountInfo> {
-  const accountName = getAccountName();
+export async function getAccountInfo(accountName?: string): Promise<AccountInfo> {
+  accountName = accountName || 'Paradex';
   try {
-    const data = await getCachedBalances() as { balances?: Array<Record<string, unknown>> };
+    const data = await getCachedBalances(accountName) as { balances?: Array<Record<string, unknown>> };
     const balances = data.balances || [];
 
     for (const bal of balances) {
@@ -96,14 +101,14 @@ export async function getAccountInfo(): Promise<AccountInfo> {
   return { balance: capital, equity: capital, unrealized_pnl: 0, margin_used: 0 };
 }
 
-export async function getPositions(): Promise<Position[]> {
-  const accountName = getAccountName();
+export async function getPositions(accountName?: string): Promise<Position[]> {
+  accountName = accountName || 'Paradex';
   try {
-    const data = await getCachedBalances() as { balances?: Array<Record<string, unknown>> };
+    const data = await getCachedBalances(accountName) as { balances?: Array<Record<string, unknown>> };
     const balances = data.balances || [];
 
     for (const bal of balances) {
-      if (String(bal.account_name || '').toLowerCase() !== accountName.toLowerCase()) continue;
+      if (String(bal.account_name || '').toLowerCase() !== accountName!.toLowerCase()) continue;
 
       const positions: Position[] = [];
       for (const asset of (bal.assets as Array<Record<string, unknown>> || [])) {
@@ -150,7 +155,6 @@ export async function getPositions(): Promise<Position[]> {
 
 export async function submitMmOrder(params: {
   pair: string;
-  base_qty: number;
   margin: number;
   duration: number;
   leverage: number;
@@ -158,10 +162,12 @@ export async function submitMmOrder(params: {
   schedule_discretion: number;
   alpha_tilt: number;
   notes: string;
+  account_name: string;
 }): Promise<Record<string, unknown>> {
-  const accountName = getAccountName();
+  const accountName = params.account_name;
   const treadfiPair = pairToTreadfi(params.pair);
 
+  // Only send margin + leverage. Tread calculates base_asset_qty from these.
   const payload: Record<string, unknown> = {
     accounts: [accountName],
     duration: Math.min(params.duration, 86400),
@@ -179,8 +185,8 @@ export async function submitMmOrder(params: {
     market_maker: true,
     notes: params.notes,
     child_orders: [
-      { accounts: [accountName], pair: treadfiPair, side: 'buy', base_asset_qty: params.base_qty },
-      { accounts: [accountName], pair: treadfiPair, side: 'sell', base_asset_qty: params.base_qty },
+      { accounts: [accountName], pair: treadfiPair, side: 'buy' },
+      { accounts: [accountName], pair: treadfiPair, side: 'sell' },
     ],
   };
 
@@ -291,14 +297,24 @@ export async function getMidPrice(pair: string, exchange = 'Paradex'): Promise<n
 
 // ── Accounts ──
 
-export async function getAccounts(): Promise<Array<Record<string, unknown>>> {
+export async function getAccounts(): Promise<TreadAccount[]> {
   try {
     const data = await request('GET', '/api/accounts/') as Record<string, unknown> | Array<Record<string, unknown>>;
-    return Array.isArray(data) ? data : (data.accounts as Array<Record<string, unknown>>) || [];
+    const raw = Array.isArray(data) ? data : (data.accounts as Array<Record<string, unknown>>) || [];
+    return raw
+      .filter((a) => a.valid && !a.archived)
+      .map((a) => ({
+        name: String(a.name || ''),
+        id: String(a.id || ''),
+        exchange: String(a.exchange || ''),
+        enabled: true, // enabled by default, user can toggle off
+      }));
   } catch {
     return [];
   }
 }
+
+export { exchangeToTreadtools };
 
 // ── Validate token ──
 

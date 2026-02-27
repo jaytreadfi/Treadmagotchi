@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { PetMode } from '@/lib/types';
+import type { PetMode, TreadAccount } from '@/lib/types';
 
 interface ConfigState {
   treadfi_api_key: string;
@@ -12,7 +12,7 @@ interface ConfigState {
   decision_interval_seconds: number;
   initial_capital: number;
   onboarded: boolean;
-  treadfi_account_name: string;
+  accounts: TreadAccount[];
 
   setApiKey: (key: string) => void;
   setAnthropicKey: (key: string) => void;
@@ -21,12 +21,14 @@ interface ConfigState {
   setDecisionInterval: (seconds: number) => void;
   setInitialCapital: (amount: number) => void;
   setOnboarded: (value: boolean) => void;
-  setAccountName: (name: string) => void;
+  setAccounts: (accounts: TreadAccount[]) => void;
+  toggleAccount: (accountName: string) => void;
+  getEnabledAccounts: () => TreadAccount[];
 }
 
 export const useConfigStore = create<ConfigState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       treadfi_api_key: '',
       anthropic_api_key: '',
       pet_name: 'Tready',
@@ -34,7 +36,7 @@ export const useConfigStore = create<ConfigState>()(
       decision_interval_seconds: 300,
       initial_capital: 100,
       onboarded: false,
-      treadfi_account_name: 'Paradex',
+      accounts: [],
 
       setApiKey: (key) => {
         if (typeof window !== 'undefined') localStorage.setItem('treadfi_api_key', key);
@@ -52,10 +54,14 @@ export const useConfigStore = create<ConfigState>()(
         set({ initial_capital: amount });
       },
       setOnboarded: (value) => set({ onboarded: value }),
-      setAccountName: (name) => {
-        if (typeof window !== 'undefined') localStorage.setItem('treadfi_account_name', name);
-        set({ treadfi_account_name: name });
-      },
+      setAccounts: (accounts) => set({ accounts }),
+      toggleAccount: (accountName) =>
+        set((s) => ({
+          accounts: s.accounts.map((a) =>
+            a.name === accountName ? { ...a, enabled: !a.enabled } : a,
+          ),
+        })),
+      getEnabledAccounts: () => get().accounts.filter((a) => a.enabled),
     }),
     {
       name: 'treadmagotchi-config',

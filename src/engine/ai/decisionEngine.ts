@@ -7,12 +7,12 @@ import { buildSystemPrompt, buildDecisionPrompt } from './promptBuilder';
 import type { AIDecision, Position, RiskMetrics, TreadtoolsSnapshot } from '@/lib/types';
 
 export async function makeDecision(params: {
-  balance: number;
   equity: number;
   unrealizedPnl: number;
   maxMargin: number;
   available: number;
   positions: Position[];
+  accountsContext: string;
   treadtoolsContext: string;
   tradingviewContext: string;
   recentPerformance: string;
@@ -25,12 +25,12 @@ export async function makeDecision(params: {
   try {
     const system = buildSystemPrompt(params.treadtoolsContext);
     const user = buildDecisionPrompt({
-      balance: params.balance,
       equity: params.equity,
       unrealized_pnl: params.unrealizedPnl,
       max_margin: params.maxMargin,
       available: params.available,
       positions: params.positions,
+      accounts_context: params.accountsContext,
       treadtools_context: params.treadtoolsContext,
       tradingview_context: params.tradingviewContext,
       recent_performance: params.recentPerformance,
@@ -40,7 +40,6 @@ export async function makeDecision(params: {
 
     const decision = await getDecision(system, user);
 
-    // If Claude returned a valid decision, use it
     if (decision.action === 'market_make' || decision.reasoning !== 'No Anthropic API key configured. Using rule-based fallback.') {
       return decision;
     }

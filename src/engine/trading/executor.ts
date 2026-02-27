@@ -41,12 +41,12 @@ function mapStatus(treadfiStatus: string, orderData: Record<string, unknown>): s
 export async function executeMm(
   decision: AIDecision,
   equity: number,
-  midPrices: Record<string, number>,
+  accountName = 'Paradex',
 ): Promise<Record<string, unknown> | null> {
   if (decision.action !== 'market_make' || !decision.pair) return null;
 
-  // Clamp parameters
-  let margin = Math.min(decision.margin || 0, equity * MAX_POSITION_PCT);
+  // Clamp parameters to hard limits
+  const margin = Math.min(decision.margin || 0, equity * MAX_POSITION_PCT);
   const leverage = Math.min(decision.leverage || 3, MAX_LEVERAGE);
   const duration = Math.min(decision.duration || 3600, MAX_MM_DURATION);
   let spreadBps = decision.spread_bps ?? 5;
@@ -54,30 +54,10 @@ export async function executeMm(
 
   if (margin < 5) return null;
 
-  // Get mid price
-  const pairBase = decision.pair.split('-')[0];
-  let midPrice = midPrices[pairBase] || 0;
-
-  if (midPrice <= 0) {
-    midPrice = (await treadApi.getMidPrice(decision.pair)) || 0;
-  }
-  if (midPrice <= 0) return null;
-
-  // Calculate base qty
-  const notional = margin * leverage;
-  let baseQty = notional / midPrice;
-
-  // Round based on price magnitude
-  if (midPrice > 10000) baseQty = Math.round(baseQty * 100000) / 100000;
-  else if (midPrice > 100) baseQty = Math.round(baseQty * 10000) / 10000;
-  else baseQty = Math.round(baseQty * 100) / 100;
-
-  if (baseQty <= 0) return null;
-
   try {
+    // Submit with margin + leverage only. Tread calculates volume.
     const response = await treadApi.submitMmOrder({
       pair: decision.pair,
-      base_qty: baseQty,
       margin,
       duration,
       leverage,
@@ -85,6 +65,7 @@ export async function executeMm(
       schedule_discretion: decision.schedule_discretion || 0.05,
       alpha_tilt: decision.alpha_tilt || 0,
       notes: decision.reasoning.slice(0, 500),
+      account_name: accountName,
     });
 
     const multiOrderId = String(response.id || '');
@@ -109,7 +90,7 @@ export async function executeMm(
       pair: decision.pair,
       side: 'mm',
       quantity: margin,
-      price: midPrice,
+      price: null,
       treadfi_id: multiOrderId,
       status: 'submitted',
       reasoning: decision.reasoning,
@@ -120,8 +101,7 @@ export async function executeMm(
         engine_passiveness: decision.engine_passiveness,
         alpha_tilt: decision.alpha_tilt,
         grid_take_profit_pct: decision.grid_take_profit_pct,
-        base_qty: baseQty,
-        mid_price: midPrice,
+        account_name: accountName,
       }),
       source: 'treadmagotchi',
       timestamp: Date.now(),

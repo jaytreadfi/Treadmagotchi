@@ -108,23 +108,26 @@ Spread across 2-3 pairs if multiple calm pairs exist (score >= 75).
 
 ## RESPONSE FORMAT
 
-Respond ONLY with valid JSON:
+Respond ONLY with valid JSON. You MUST include the "account" field specifying which account to trade on.
 
 Market Make:
-{{"action": "market_make", "pair": "ETH-USD", "margin": 15, "leverage": 15, "duration": 3600, "spread_bps": 3, "reference_price": "grid", "engine_passiveness": 0.1, "schedule_discretion": 0.05, "alpha_tilt": 0.0, "grid_take_profit_pct": 5.0, "confidence": "high", "reasoning": "..."}}
+{{"action": "market_make", "account": "Paradex", "pair": "ETH-USD", "margin": 15, "leverage": 15, "duration": 3600, "spread_bps": 3, "reference_price": "grid", "engine_passiveness": 0.1, "schedule_discretion": 0.05, "alpha_tilt": 0.0, "grid_take_profit_pct": 5.0, "confidence": "high", "reasoning": "..."}}
 
 Hold:
 {{"action": "hold", "pair": null, "reasoning": "No pairs >= 70 score."}}`;
 
 const DECISION_PROMPT = `
-## PORTFOLIO
-- Balance: \${balance} | Equity: \${equity} | Unrealized: \${unrealized_pnl}
+## ACCOUNTS
+{accounts_context}
+
+## AGGREGATE PORTFOLIO
+- Total Equity: \${equity} | Total Unrealized: \${unrealized_pnl}
 - Max MM Margin: \${max_margin} (20%) | Available: \${available}
 
-## POSITIONS
+## POSITIONS (all accounts)
 {positions_table}
 
-## TREADTOOLS MARKET SCAN
+## MARKET DATA PER EXCHANGE
 {treadtools_context}
 
 ## TRADINGVIEW TECHNICAL ANALYSIS
@@ -143,6 +146,8 @@ const DECISION_PROMPT = `
 Rules: market_make or hold ONLY. Only calm/steady pairs (score >= 70, "great" or "good", vol >= $10M).
 Max $25 margin per bot. Max 50x leverage. Max 4h duration. Max 10 bps spread.
 Use TradingView data to choose between grid (choppy/range) vs reverse_grid (trending).
+**You MUST specify which account to execute on** using the "account" field.
+**Only trade pairs on exchanges where that account exists.**
 **Learn from your history above.** Repeat what worked, avoid what didn't.
 
 IMPORTANT: Your ENTIRE response must be a single valid JSON object. No markdown. Put reasoning in the "reasoning" field.`;
@@ -157,12 +162,12 @@ export function buildSystemPrompt(treadtoolsContext: string): string {
 }
 
 export function buildDecisionPrompt(params: {
-  balance: number;
   equity: number;
   unrealized_pnl: number;
   max_margin: number;
   available: number;
   positions: Position[];
+  accounts_context: string;
   treadtools_context: string;
   tradingview_context: string;
   recent_performance: string;
@@ -170,11 +175,11 @@ export function buildDecisionPrompt(params: {
   pattern_analysis: string;
 }): string {
   return DECISION_PROMPT
-    .replace('${balance}', params.balance.toFixed(2))
     .replace('${equity}', params.equity.toFixed(2))
     .replace('${unrealized_pnl}', (params.unrealized_pnl >= 0 ? '+' : '') + params.unrealized_pnl.toFixed(2))
     .replace('${max_margin}', params.max_margin.toFixed(2))
     .replace('${available}', params.available.toFixed(2))
+    .replace('{accounts_context}', params.accounts_context)
     .replace('{positions_table}', formatPositions(params.positions))
     .replace('{treadtools_context}', params.treadtools_context)
     .replace('{tradingview_context}', params.tradingview_context)

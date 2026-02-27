@@ -65,6 +65,7 @@ export interface RiskMetrics {
 
 export interface AIDecision {
   action: 'market_make' | 'hold';
+  account?: string;  // which account to execute on
   pair?: string;
   margin?: number;
   leverage?: number;
@@ -170,6 +171,13 @@ export interface PetEvent {
 
 // ── Config ──
 
+export interface TreadAccount {
+  name: string;        // Display name from Tread API (e.g. "Paradex", "Bybit Main")
+  id: string;          // Account ID from Tread
+  exchange: string;    // Exchange name (paradex, bybit, hyperliquid)
+  enabled: boolean;    // Whether the bot can trade on this account
+}
+
 export interface AppConfig {
   treadfi_api_key: string;
   anthropic_api_key: string;
@@ -178,7 +186,7 @@ export interface AppConfig {
   decision_interval_seconds: number;
   initial_capital: number;
   onboarded: boolean;
-  treadfi_account_name: string;
+  accounts: TreadAccount[];
 }
 
 // ── Decision log ──

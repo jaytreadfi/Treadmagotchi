@@ -55,6 +55,7 @@ export async function getDecision(
 
     return {
       action: parsed.action === 'market_make' ? 'market_make' : 'hold',
+      account: parsed.account as string | undefined,
       pair: parsed.pair as string | undefined,
       margin: parsed.margin as number | undefined,
       leverage: parsed.leverage as number | undefined,
