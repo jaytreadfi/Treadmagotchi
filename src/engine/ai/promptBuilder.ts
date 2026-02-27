@@ -127,6 +127,9 @@ const DECISION_PROMPT = `
 ## TREADTOOLS MARKET SCAN
 {treadtools_context}
 
+## TRADINGVIEW TECHNICAL ANALYSIS
+{tradingview_context}
+
 ## YOUR PAST DECISIONS & OUTCOMES
 {trade_history}
 
@@ -139,6 +142,7 @@ const DECISION_PROMPT = `
 ## DECISION
 Rules: market_make or hold ONLY. Only calm pairs (score >= 70, "great", vol >= $20M).
 Max $25 margin per bot. Max 50x leverage. Max 4h duration. Max 10 bps spread.
+Use TradingView data to choose between grid (choppy/range) vs reverse_grid (trending).
 **Learn from your history above.** Repeat what worked, avoid what didn't.
 
 IMPORTANT: Your ENTIRE response must be a single valid JSON object. No markdown. Put reasoning in the "reasoning" field.`;
@@ -160,6 +164,7 @@ export function buildDecisionPrompt(params: {
   available: number;
   positions: Position[];
   treadtools_context: string;
+  tradingview_context: string;
   recent_performance: string;
   trade_history: string;
   pattern_analysis: string;
@@ -172,6 +177,7 @@ export function buildDecisionPrompt(params: {
     .replace('${available}', params.available.toFixed(2))
     .replace('{positions_table}', formatPositions(params.positions))
     .replace('{treadtools_context}', params.treadtools_context)
+    .replace('{tradingview_context}', params.tradingview_context)
     .replace('{trade_history}', params.trade_history)
     .replace('{pattern_analysis}', params.pattern_analysis)
     .replace('{recent_performance}', params.recent_performance);

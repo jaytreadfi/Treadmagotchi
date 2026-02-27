@@ -5,6 +5,7 @@
 import * as treadApi from '@/clients/treadApi';
 import * as treadtoolsApi from '@/clients/treadtoolsApi';
 import * as hyperliquidApi from '@/clients/hyperliquidApi';
+import * as tradingviewApi from '@/clients/tradingviewApi';
 import { riskManager } from './riskManager';
 import { getActivePairs } from './pairSelector';
 import * as executor from './executor';
@@ -46,6 +47,18 @@ export async function runTradingLoop(): Promise<void> {
       log(`Hyperliquid: ${Object.keys(allMids).length} mid prices`);
     } catch (e) {
       log('Hyperliquid mids failed (non-fatal):', e);
+    }
+
+    // 3b. Fetch TradingView technical analysis for active pairs
+    let tvContext = 'TradingView data unavailable.';
+    try {
+      const tvAnalyses = await tradingviewApi.getAnalysis(activePairs);
+      if (Object.keys(tvAnalyses).length) {
+        tvContext = tradingviewApi.toContextString(tvAnalyses);
+        log(`TradingView: got analysis for ${Object.keys(tvAnalyses).join(', ')}`);
+      }
+    } catch (e) {
+      log('TradingView fetch failed (non-fatal):', e);
     }
 
     // 4. Fetch positions + account from Tread
@@ -98,6 +111,7 @@ export async function runTradingLoop(): Promise<void> {
       available,
       positions,
       treadtoolsContext: treadtoolsCtx,
+      tradingviewContext: tvContext,
       recentPerformance: recentPerf,
       tradeHistory,
       patternAnalysis,

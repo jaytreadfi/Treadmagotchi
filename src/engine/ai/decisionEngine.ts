@@ -14,6 +14,7 @@ export async function makeDecision(params: {
   available: number;
   positions: Position[];
   treadtoolsContext: string;
+  tradingviewContext: string;
   recentPerformance: string;
   tradeHistory: string;
   patternAnalysis: string;
@@ -31,6 +32,7 @@ export async function makeDecision(params: {
       available: params.available,
       positions: params.positions,
       treadtools_context: params.treadtoolsContext,
+      tradingview_context: params.tradingviewContext,
       recent_performance: params.recentPerformance,
       trade_history: params.tradeHistory,
       pattern_analysis: params.patternAnalysis,
