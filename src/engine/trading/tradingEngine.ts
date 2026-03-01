@@ -11,6 +11,7 @@ import { riskManager } from './riskManager';
 import { getActivePairs } from './pairSelector';
 import { classifyRegime, regimeToContextString } from './regimeClassifier';
 import * as executor from './executor';
+import { orderMonitor } from './orderMonitor';
 import { makeDecisions } from '@/engine/ai/decisionEngine';
 import { useConfigStore } from '@/store/useConfigStore';
 import { useTradingStore } from '@/store/useTradingStore';
@@ -325,6 +326,14 @@ export async function runStatusSync(): Promise<void> {
       margin_used: 0,
     });
     store.setLastSyncTime(Date.now());
+
+    // Order monitor — check for stale orders
+    try {
+      const activeBots = await treadApi.getActiveMmBots();
+      await orderMonitor.checkOrders(activeBots);
+    } catch (e) {
+      console.error('[TradingEngine] Order monitor error:', e);
+    }
 
     // Live volume tracking
     const { perBot } = await treadApi.getActiveBotsVolume();

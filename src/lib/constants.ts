@@ -1,16 +1,23 @@
 import type { EvolutionStage } from './types';
 
-// ── Risk limits (ported identically from Treadbot config.py) ──
-export const MAX_POSITION_PCT = 0.40;
-export const MAX_TOTAL_EXPOSURE_PCT = 0.60;
-export const MAX_DAILY_LOSS_USD = 10.0;   // Absolute floor
-export const MAX_DAILY_LOSS_PCT = 0.05;   // 5% of equity — used when equity-based limit > $10
-export const MAX_DRAWDOWN_PCT = 0.15;
+// ── Risk limits ──
+export const MAX_POSITION_PCT = 0.80;
+export const MAX_TOTAL_EXPOSURE_PCT = 0.80;
+export const MAX_DAILY_LOSS_USD = 20.0;   // Absolute floor
+export const MAX_DAILY_LOSS_PCT = 0.10;   // 10% of equity
+export const MAX_DRAWDOWN_PCT = 0.30;
 export const STOP_LOSS_PCT = 0.10;
 export const MAX_LEVERAGE = 50;
 export const MAX_SPREAD_BPS = 10;
 export const MAX_MM_DURATION = 14400;
 export const MIN_VOLUME = 10_000_000;
+
+// ── Order monitor thresholds ──
+export const ORDER_MONITOR_START_MS = 5 * 60 * 1000;      // 5 min — no monitoring before this
+export const ORDER_SPREAD_ADJUST_MS = 15 * 60 * 1000;     // 15 min — set spread to 0 if drifted
+export const ORDER_CANCEL_MS = 30 * 60 * 1000;            // 30 min — cancel if barely filled
+export const ORDER_DRIFT_THRESHOLD_PCT = 0.005;            // 0.5% price drift
+export const ORDER_MIN_FILL_PCT = 20;                      // cancel if <20% filled at 30 min
 
 // ── Trading intervals (ms) ──
 export const DECISION_INTERVAL_MS = 5 * 60 * 1000;     // 5 min
@@ -66,7 +73,7 @@ export const WAF_USER_AGENT =
 export const PROXY_BASE = '/api/proxy';
 
 // ── Claude ──
-export const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
+export const CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
 
 // ── Canvas ──
 export const CANVAS_LOGICAL_SIZE = 160;

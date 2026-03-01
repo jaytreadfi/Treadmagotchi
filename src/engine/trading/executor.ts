@@ -10,6 +10,7 @@ import type { AIDecision } from '@/lib/types';
 import * as treadApi from '@/clients/treadApi';
 import * as db from '@/persistence/db';
 import { riskManager } from './riskManager';
+import { orderMonitor } from './orderMonitor';
 
 const STATUS_MAP: Record<string, string> = {
   ACTIVE: 'active',
@@ -147,7 +148,7 @@ export async function executeMm(
       pair: decision.pair,
       side: 'mm',
       quantity: margin,
-      price: null,
+      price: midPrice,
       treadfi_id: multiOrderId,
       status: 'submitted',
       reasoning: decision.reasoning,
@@ -159,11 +160,15 @@ export async function executeMm(
         alpha_tilt: decision.alpha_tilt,
         grid_take_profit_pct: decision.grid_take_profit_pct,
         account_name: accountName,
+        entry_mid_price: midPrice,
         ...(signalName ? { signal_name: signalName } : {}),
       }),
       source: 'treadmagotchi',
       timestamp: Date.now(),
     });
+
+    // Register with order monitor for stale detection
+    orderMonitor.track(multiOrderId, decision.pair, accountName, midPrice);
 
     return response;
   } catch (err) {
