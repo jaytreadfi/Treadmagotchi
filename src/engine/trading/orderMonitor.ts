@@ -10,7 +10,7 @@ import {
   ORDER_MIN_FILL_PCT,
 } from '@/lib/constants';
 import * as treadApi from '@/clients/treadApi';
-import * as db from '@/persistence/db';
+import { getTrades, saveActivity } from '@/persistence/db';
 
 interface TrackedOrder {
   orderId: string;
@@ -31,7 +31,7 @@ class OrderMonitor {
     if (this.bootstrapped) return;
     this.bootstrapped = true;
 
-    const trades = await db.getTrades(200);
+    const trades = await getTrades(200);
     const active = trades.filter(
       (t) => t.treadfi_id && ['submitted', 'active'].includes(t.status),
     );
@@ -125,10 +125,15 @@ class OrderMonitor {
       // ≥ 30 min: cancel if barely filled and drifted
       if (age >= ORDER_CANCEL_MS) {
         if (pctFilled < ORDER_MIN_FILL_PCT && drift > ORDER_DRIFT_THRESHOLD_PCT) {
-          console.log(
-            `[OrderMonitor] CANCEL ${id} (${order.pair}): age=${(age / 60000).toFixed(0)}m, ` +
-            `filled=${pctFilled.toFixed(1)}%, drift=${(drift * 100).toFixed(2)}%`,
-          );
+          const cancelMsg = `CANCEL ${id} (${order.pair}): age=${(age / 60000).toFixed(0)}m, filled=${pctFilled.toFixed(1)}%, drift=${(drift * 100).toFixed(2)}%`;
+          console.log(`[OrderMonitor] ${cancelMsg}`);
+          saveActivity({
+            timestamp: Date.now(),
+            category: 'monitor',
+            action: 'cancel_stale',
+            pair: order.pair,
+            detail: JSON.stringify({ orderId: id, account: order.accountName, ageMin: +(age / 60000).toFixed(0), pctFilled, driftPct: +(drift * 100).toFixed(2) }),
+          }).catch(() => {});
           try {
             await treadApi.cancelMultiOrder(id);
             this.tracked.delete(id);
@@ -147,6 +152,13 @@ class OrderMonitor {
           `[OrderMonitor] SPREAD→0 ${id} (${order.pair}): age=${(age / 60000).toFixed(0)}m, ` +
           `drift=${(drift * 100).toFixed(2)}%`,
         );
+        saveActivity({
+          timestamp: Date.now(),
+          category: 'monitor',
+          action: 'spread_adjust',
+          pair: order.pair,
+          detail: JSON.stringify({ orderId: id, account: order.accountName, ageMin: +(age / 60000).toFixed(0), driftPct: +(drift * 100).toFixed(2), newSpread: 0 }),
+        }).catch(() => {});
         try {
           await treadApi.changeMmSpread({
             multi_order_id: id,
@@ -166,6 +178,13 @@ class OrderMonitor {
           `[OrderMonitor] DRIFT WARNING ${id} (${order.pair}): age=${(age / 60000).toFixed(0)}m, ` +
           `drift=${(drift * 100).toFixed(2)}%, filled=${pctFilled.toFixed(1)}%`,
         );
+        saveActivity({
+          timestamp: Date.now(),
+          category: 'monitor',
+          action: 'drift_warning',
+          pair: order.pair,
+          detail: JSON.stringify({ orderId: id, account: order.accountName, ageMin: +(age / 60000).toFixed(0), driftPct: +(drift * 100).toFixed(2), pctFilled }),
+        }).catch(() => {});
       }
     }
   }

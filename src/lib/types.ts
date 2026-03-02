@@ -189,6 +189,17 @@ export interface AppConfig {
   accounts: TreadAccount[];
 }
 
+// ── Activity log (persisted to IndexedDB) ──
+
+export interface ActivityLogEntry {
+  id?: number;
+  timestamp: number;
+  category: 'decision' | 'monitor' | 'engine' | 'error';
+  action: string;           // 'trade', 'hold', 'spread_adjust', 'cancel', 'sync', etc.
+  pair: string | null;
+  detail: string;           // JSON string with full context (reasoning, portfolio, params)
+}
+
 // ── Decision log ──
 
 export interface DecisionLogEntry {

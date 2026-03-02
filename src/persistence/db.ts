@@ -2,13 +2,14 @@
  * IndexedDB persistence via Dexie — structured storage for trades, PnL, events.
  */
 import Dexie, { type EntityTable } from 'dexie';
-import type { TradeRecord, TradeOutcome, PnLSnapshot, PetEvent } from '@/lib/types';
+import type { TradeRecord, TradeOutcome, PnLSnapshot, PetEvent, ActivityLogEntry } from '@/lib/types';
 
 const db = new Dexie('TreadmagotchiDB') as Dexie & {
   trades: EntityTable<TradeRecord, 'id'>;
   tradeOutcomes: EntityTable<TradeOutcome, 'id'>;
   pnlSnapshots: EntityTable<PnLSnapshot, 'id'>;
   events: EntityTable<PetEvent, 'id'>;
+  activityLog: EntityTable<ActivityLogEntry, 'id'>;
 };
 
 db.version(1).stores({
@@ -16,6 +17,14 @@ db.version(1).stores({
   tradeOutcomes: '++id, trade_id, timestamp',
   pnlSnapshots: '++id, timestamp',
   events: '++id, timestamp, type',
+});
+
+db.version(2).stores({
+  trades: '++id, treadfi_id, pair, status, timestamp',
+  tradeOutcomes: '++id, trade_id, timestamp',
+  pnlSnapshots: '++id, timestamp',
+  events: '++id, timestamp, type',
+  activityLog: '++id, timestamp, category, action',
 });
 
 // ── Trade operations ──
@@ -101,6 +110,24 @@ export async function saveEvent(type: string, data: string): Promise<void> {
 
 export async function getEvents(limit = 50): Promise<PetEvent[]> {
   return db.events.orderBy('timestamp').reverse().limit(limit).toArray();
+}
+
+// ── Activity log ──
+
+export async function saveActivity(entry: Omit<ActivityLogEntry, 'id'>): Promise<void> {
+  await db.activityLog.add(entry as ActivityLogEntry);
+}
+
+export async function getActivityLog(limit = 100): Promise<ActivityLogEntry[]> {
+  return db.activityLog.orderBy('timestamp').reverse().limit(limit).toArray();
+}
+
+export async function getActivityByCategory(category: string, limit = 50): Promise<ActivityLogEntry[]> {
+  const all = await db.activityLog
+    .where('category')
+    .equals(category)
+    .toArray();
+  return all.sort((a, b) => b.timestamp - a.timestamp).slice(0, limit);
 }
 
 export default db;

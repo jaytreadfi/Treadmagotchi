@@ -224,6 +224,7 @@ export async function runTradingLoop(): Promise<void> {
 
     if (!decisions.length) {
       log('Decision: HOLD (no trades)');
+      const portfolio = { balance: aggregateAccount.balance, equity: totalEquity, unrealized_pnl: totalUnrealizedPnl, exposure_pct: metrics.exposure_pct };
       store.addDecision({
         timestamp: new Date().toISOString(),
         action: 'hold',
@@ -231,8 +232,15 @@ export async function runTradingLoop(): Promise<void> {
         reasoning: 'No opportunities across all exchanges.',
         active_pairs: allActivePairs,
         calm_pairs: lastSnapshot?.calm_pairs || [],
-        portfolio: { balance: aggregateAccount.balance, equity: totalEquity, unrealized_pnl: totalUnrealizedPnl, exposure_pct: metrics.exposure_pct },
+        portfolio,
       });
+      db.saveActivity({
+        timestamp: Date.now(),
+        category: 'decision',
+        action: 'hold',
+        pair: null,
+        detail: JSON.stringify({ reasoning: 'No opportunities across all exchanges.', active_pairs: allActivePairs, calm_pairs: lastSnapshot?.calm_pairs || [], portfolio }),
+      }).catch(() => {});
     }
 
     // 8. Execute each trade (deduplicate: one pair per account)
@@ -264,15 +272,24 @@ export async function runTradingLoop(): Promise<void> {
       const result = await executor.executeMm(decision, accountEquity, acct.name, acct.exchange);
       log(result ? `  Bot launched: ${String(result.id || '').slice(0, 12)}` : '  Execution failed');
 
+      const tradeReasoning = `[${acct.name} · ${decision.reference_price || 'mid'} · ${decision.leverage || 0}x · $${decision.margin || 0}] ${decision.reasoning}`;
+      const portfolio = { balance: aggregateAccount.balance, equity: totalEquity, unrealized_pnl: totalUnrealizedPnl, exposure_pct: metrics.exposure_pct };
       store.addDecision({
         timestamp: new Date().toISOString(),
         action: 'market_make',
         pair: decision.pair,
-        reasoning: `[${acct.name} · ${decision.reference_price || 'mid'} · ${decision.leverage || 0}x · $${decision.margin || 0}] ${decision.reasoning}`,
+        reasoning: tradeReasoning,
         active_pairs: allActivePairs,
         calm_pairs: lastSnapshot?.calm_pairs || [],
-        portfolio: { balance: aggregateAccount.balance, equity: totalEquity, unrealized_pnl: totalUnrealizedPnl, exposure_pct: metrics.exposure_pct },
+        portfolio,
       });
+      db.saveActivity({
+        timestamp: Date.now(),
+        category: 'decision',
+        action: 'trade',
+        pair: decision.pair,
+        detail: JSON.stringify({ account: acct.name, reasoning: tradeReasoning, mode: decision.reference_price || 'mid', leverage: decision.leverage, margin: decision.margin, portfolio }),
+      }).catch(() => {});
     }
 
     // 9. Save PnL snapshot
