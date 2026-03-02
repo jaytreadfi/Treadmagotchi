@@ -83,23 +83,17 @@ export async function executeMm(
   const multiplier = refPrice === 'reverse_grid' ? 10 : 20;
   const targetNotional = margin * leverage * multiplier;
 
-  // Total base qty = targetNotional / currentPrice, split in half for buy+sell
-  const totalBaseQty = targetNotional / midPrice;
-  let perSideQty = totalBaseQty / 2;
-
-  // If alpha_tilt is applied, further halve (directional bias reduces per-side)
-  if (decision.alpha_tilt && Math.abs(decision.alpha_tilt) > 0.01) {
-    perSideQty = perSideQty / 2;
-  }
+  // Base qty = targetNotional / currentPrice (per-side target for Tread's MM engine)
+  let baseQtyRaw = targetNotional / midPrice;
 
   // Round based on price magnitude
-  if (midPrice > 10000) perSideQty = Math.round(perSideQty * 100000) / 100000;
-  else if (midPrice > 100) perSideQty = Math.round(perSideQty * 10000) / 10000;
-  else perSideQty = Math.round(perSideQty * 100) / 100;
-  if (perSideQty <= 0) return null;
+  if (midPrice > 10000) baseQtyRaw = Math.round(baseQtyRaw * 100000) / 100000;
+  else if (midPrice > 100) baseQtyRaw = Math.round(baseQtyRaw * 10000) / 10000;
+  else baseQtyRaw = Math.round(baseQtyRaw * 100) / 100;
+  if (baseQtyRaw <= 0) return null;
 
-  console.log(`[Executor] Notional calc: margin=$${margin} × lev=${leverage} × mult=${multiplier} = $${targetNotional.toFixed(0)} target | perSide=${perSideQty} @ $${midPrice.toFixed(2)}`);
-  const baseQty = perSideQty;
+  console.log(`[Executor] Notional calc: margin=$${margin} × lev=${leverage} × mult=${multiplier} = $${targetNotional.toFixed(0)} target | baseQty=${baseQtyRaw} @ $${midPrice.toFixed(2)}`);
+  const baseQty = baseQtyRaw;
 
   try {
     console.log(`[Executor] Submitting MM: pair=${decision.pair} margin=${margin} lev=${leverage} baseQty=${baseQty} midPrice=${midPrice} account=${accountName} exchange=${exchange}`);
