@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useTradingStore } from '@/store/useTradingStore';
 import { usePetStore } from '@/store/usePetStore';
-import * as db from '@/persistence/db';
 import type { TradeOutcome } from '@/lib/types';
 import PixelButton from '@/components/ui/PixelButton';
 
@@ -15,11 +14,18 @@ export default function StatsScreen({ onClose }: StatsScreenProps) {
   const decisionLog = useTradingStore((s) => s.decisionLog);
   const stage = usePetStore((s) => s.stage);
   const cumulativeVolume = usePetStore((s) => s.cumulative_volume);
-  const consecutiveLosses = usePetStore((s) => s.consecutive_losses);
   const [outcomes, setOutcomes] = useState<TradeOutcome[]>([]);
 
   useEffect(() => {
-    db.getTradeOutcomes(20).then(setOutcomes);
+    fetch('/api/trades/outcomes')
+      .then((res) => {
+        if (!res.ok) throw new Error('Failed to fetch outcomes');
+        return res.json();
+      })
+      .then((data) => setOutcomes(data.outcomes || data || []))
+      .catch(() => {
+        // Non-fatal -- show empty
+      });
   }, []);
 
   const wins = outcomes.filter((o) => o.outcome === 'win').length;
@@ -62,7 +68,7 @@ export default function StatsScreen({ onClose }: StatsScreenProps) {
           <div className="text-[8px] opacity-30 text-center py-4">No decisions yet</div>
         )}
         {[...decisionLog].reverse().slice(0, 10).map((d, i) => {
-          // Parse "[Account · mode · levx · $margin] reasoning" prefix for market_make
+          // Parse "[Account . mode . levx . $margin] reasoning" prefix for market_make
           const metaMatch = d.action === 'market_make'
             ? d.reasoning.match(/^\[([^\]]+·[^\]]+)\]\s*([\s\S]*)$/)
             : null;

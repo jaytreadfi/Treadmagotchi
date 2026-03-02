@@ -1,12 +1,23 @@
 'use client';
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type { PetMode, TreadAccount } from '@/lib/types';
+import { pickData } from './utils';
+
+const CONFIG_DATA_KEYS = [
+  'treadfi_api_key_configured',
+  'anthropic_api_key_configured',
+  'pet_name',
+  'mode',
+  'decision_interval_seconds',
+  'initial_capital',
+  'onboarded',
+  'accounts',
+];
 
 interface ConfigState {
-  treadfi_api_key: string;
-  anthropic_api_key: string;
+  treadfi_api_key_configured: boolean;
+  anthropic_api_key_configured: boolean;
   pet_name: string;
   mode: PetMode;
   decision_interval_seconds: number;
@@ -14,57 +25,30 @@ interface ConfigState {
   onboarded: boolean;
   accounts: TreadAccount[];
 
-  setApiKey: (key: string) => void;
-  setAnthropicKey: (key: string) => void;
-  setPetName: (name: string) => void;
+  // Hydrate from server state
+  hydrate: (data: Partial<ConfigState>) => void;
   setMode: (mode: PetMode) => void;
-  setDecisionInterval: (seconds: number) => void;
-  setInitialCapital: (amount: number) => void;
-  setOnboarded: (value: boolean) => void;
   setAccounts: (accounts: TreadAccount[]) => void;
   toggleAccount: (accountName: string) => void;
-  getEnabledAccounts: () => TreadAccount[];
 }
 
-export const useConfigStore = create<ConfigState>()(
-  persist(
-    (set, get) => ({
-      treadfi_api_key: '',
-      anthropic_api_key: '',
-      pet_name: 'Tready',
-      mode: 'auto',
-      decision_interval_seconds: 300,
-      initial_capital: 100,
-      onboarded: false,
-      accounts: [],
+export const useConfigStore = create<ConfigState>()((set) => ({
+  treadfi_api_key_configured: false,
+  anthropic_api_key_configured: false,
+  pet_name: 'Tready',
+  mode: 'auto',
+  decision_interval_seconds: 300,
+  initial_capital: 100,
+  onboarded: false,
+  accounts: [],
 
-      setApiKey: (key) => {
-        if (typeof window !== 'undefined') localStorage.setItem('treadfi_api_key', key);
-        set({ treadfi_api_key: key });
-      },
-      setAnthropicKey: (key) => {
-        if (typeof window !== 'undefined') localStorage.setItem('anthropic_api_key', key);
-        set({ anthropic_api_key: key });
-      },
-      setPetName: (name) => set({ pet_name: name }),
-      setMode: (mode) => set({ mode }),
-      setDecisionInterval: (seconds) => set({ decision_interval_seconds: seconds }),
-      setInitialCapital: (amount) => {
-        if (typeof window !== 'undefined') localStorage.setItem('initial_capital', String(amount));
-        set({ initial_capital: amount });
-      },
-      setOnboarded: (value) => set({ onboarded: value }),
-      setAccounts: (accounts) => set({ accounts }),
-      toggleAccount: (accountName) =>
-        set((s) => ({
-          accounts: s.accounts.map((a) =>
-            a.name === accountName ? { ...a, enabled: !a.enabled } : a,
-          ),
-        })),
-      getEnabledAccounts: () => get().accounts.filter((a) => a.enabled),
-    }),
-    {
-      name: 'treadmagotchi-config',
-    },
-  ),
-);
+  hydrate: (data) => set(pickData(data, CONFIG_DATA_KEYS)),
+  setMode: (mode) => set({ mode }),
+  setAccounts: (accounts) => set({ accounts }),
+  toggleAccount: (accountName) =>
+    set((s) => ({
+      accounts: s.accounts.map((a) =>
+        a.name === accountName ? { ...a, enabled: !a.enabled } : a,
+      ),
+    })),
+}));

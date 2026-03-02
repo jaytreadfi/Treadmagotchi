@@ -133,7 +133,7 @@ export interface PetState {
 
 export interface TradeRecord {
   id?: number;
-  treadfi_id: string;
+  treadfi_id: string | null;
   pair: string;
   side: string;
   quantity: number;
@@ -153,22 +153,6 @@ export interface TradeOutcome {
   timestamp: number;
 }
 
-export interface PnLSnapshot {
-  id?: number;
-  timestamp: number;
-  balance: number;
-  equity: number;
-  unrealized_pnl: number;
-  num_positions: number;
-}
-
-export interface PetEvent {
-  id?: number;
-  timestamp: number;
-  type: string;
-  data: string;
-}
-
 // ── Config ──
 
 export interface TreadAccount {
@@ -176,28 +160,6 @@ export interface TreadAccount {
   id: string;          // Account ID from Tread
   exchange: string;    // Exchange name (paradex, bybit, hyperliquid)
   enabled: boolean;    // Whether the bot can trade on this account
-}
-
-export interface AppConfig {
-  treadfi_api_key: string;
-  anthropic_api_key: string;
-  pet_name: string;
-  mode: PetMode;
-  decision_interval_seconds: number;
-  initial_capital: number;
-  onboarded: boolean;
-  accounts: TreadAccount[];
-}
-
-// ── Activity log (persisted to IndexedDB) ──
-
-export interface ActivityLogEntry {
-  id?: number;
-  timestamp: number;
-  category: 'decision' | 'monitor' | 'engine' | 'error';
-  action: string;           // 'trade', 'hold', 'spread_adjust', 'cancel', 'sync', etc.
-  pair: string | null;
-  detail: string;           // JSON string with full context (reasoning, portfolio, params)
 }
 
 // ── Decision log ──

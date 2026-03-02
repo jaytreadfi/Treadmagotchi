@@ -3,8 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useConfigStore } from '@/store/useConfigStore';
 import { usePetStore } from '@/store/usePetStore';
-import { triggerManualFeed } from '@/engine/scheduler/loopScheduler';
-import { revivePet } from '@/engine/pet/petStateMachine';
 import PixelButton from './PixelButton';
 
 const PET_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes
@@ -18,6 +16,7 @@ export default function ActionButtons({ onStatsClick, onConfigClick }: ActionBut
   const mode = useConfigStore((s) => s.mode);
   const isAlive = usePetStore((s) => s.is_alive);
   const [feeding, setFeeding] = useState(false);
+  const [reviving, setReviving] = useState(false);
   const [petCooldownLeft, setPetCooldownLeft] = useState(0);
   const [lastPetTime, setLastPetTime] = useState(0);
 
@@ -38,31 +37,55 @@ export default function ActionButtons({ onStatsClick, onConfigClick }: ActionBut
     if (feeding) return;
     setFeeding(true);
     try {
-      await triggerManualFeed();
-      usePetStore.getState().setSpeechBubble('Yum!', 3000);
+      const res = await fetch('/api/pet/feed', {
+        method: 'POST',
+
+      });
+      if (res.ok) {
+        // Server will update pet state via SSE
+      }
     } catch {
-      usePetStore.getState().setSpeechBubble('Nothing good to eat!', 3000);
+      // Non-fatal -- SSE will sync state
     }
     setFeeding(false);
   };
 
-  const handlePet = useCallback(() => {
+  const handlePet = useCallback(async () => {
     if (petOnCooldown) return;
-    const pet = usePetStore.getState();
-    pet.setVitals({ happiness: Math.min(100, pet.vitals.happiness + 5) });
-    pet.setSpeechBubble('Thanks!', 3000);
     setLastPetTime(Date.now());
+    try {
+      await fetch('/api/pet/interact', {
+        method: 'POST',
+
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'pet' }),
+      });
+      // Server will update pet state via SSE
+    } catch {
+      // Non-fatal
+    }
   }, [petOnCooldown]);
 
-  const handleRevive = () => {
-    revivePet();
+  const handleRevive = async () => {
+    if (reviving) return;
+    setReviving(true);
+    try {
+      await fetch('/api/pet/revive', {
+        method: 'POST',
+
+      });
+      // Server will update pet state via SSE
+    } catch {
+      // Non-fatal
+    }
+    setReviving(false);
   };
 
   if (!isAlive) {
     return (
       <div className="flex justify-center gap-2 px-4">
-        <PixelButton onClick={handleRevive} variant="danger">
-          Revive
+        <PixelButton onClick={handleRevive} variant="danger" disabled={reviving}>
+          {reviving ? '...' : 'Revive'}
         </PixelButton>
         <PixelButton onClick={onStatsClick} variant="ghost">
           Stats

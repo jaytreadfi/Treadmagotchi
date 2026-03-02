@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import { usePetStore } from '@/store/usePetStore';
 import { CANVAS_LOGICAL_SIZE } from '@/lib/constants';
 import type { EvolutionStage, PetMood } from '@/lib/types';
@@ -22,9 +22,11 @@ const STAGE_SIZES: Record<EvolutionStage, number> = {
 const MOOD_EYES: Record<string, string> = {
   dead: 'X X', happy: '^ ^', excited: '* *', angry: '> <',
   sad: '; ;', hungry: 'o o', starving: 'x x', sick: '~ ~',
-  sleeping: '- -', bored: '. .', content: '• •', proud: '★ ★',
+  sleeping: '- -', bored: '. .', content: '\u2022 \u2022', proud: '\u2605 \u2605',
   determined: '= =',
 };
+
+const EVOLUTION_FLASH_DURATION_MS = 8000;
 
 export default function PetCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -33,6 +35,43 @@ export default function PetCanvas() {
   const mood = usePetStore((s) => s.mood);
   const isAlive = usePetStore((s) => s.is_alive);
   const speechBubble = usePetStore((s) => s.speech_bubble);
+  const speechBubbleUntil = usePetStore((s) => s.speech_bubble_until);
+  const evolvedAt = usePetStore((s) => s.evolved_at);
+
+  // Client-side speech bubble expiry
+  const [visibleSpeech, setVisibleSpeech] = useState<string | null>(speechBubble);
+
+  useEffect(() => {
+    setVisibleSpeech(speechBubble);
+
+    if (!speechBubble || !speechBubbleUntil) return;
+
+    const remaining = speechBubbleUntil - Date.now();
+    if (remaining <= 0) {
+      setVisibleSpeech(null);
+      return;
+    }
+
+    const timeout = setTimeout(() => {
+      setVisibleSpeech(null);
+    }, remaining);
+
+    return () => clearTimeout(timeout);
+  }, [speechBubble, speechBubbleUntil]);
+
+  // Evolution flash -- use state + effect so re-render fires when duration expires
+  const [isEvolving, setIsEvolving] = useState(false);
+
+  useEffect(() => {
+    if (evolvedAt != null && Date.now() - evolvedAt < EVOLUTION_FLASH_DURATION_MS) {
+      setIsEvolving(true);
+      const remaining = EVOLUTION_FLASH_DURATION_MS - (Date.now() - evolvedAt);
+      const timer = setTimeout(() => setIsEvolving(false), remaining);
+      return () => clearTimeout(timer);
+    } else {
+      setIsEvolving(false);
+    }
+  }, [evolvedAt]);
 
   const draw = useCallback((ctx: CanvasRenderingContext2D, frame: number) => {
     const S = CANVAS_LOGICAL_SIZE;
@@ -53,6 +92,12 @@ export default function PetCanvas() {
     if (!isAlive) {
       // Dead: ghost effect
       ctx.globalAlpha = 0.4;
+    }
+
+    // Evolution flash effect
+    if (isEvolving) {
+      const flashPhase = Math.sin(frame * 0.3);
+      ctx.globalAlpha = 0.5 + flashPhase * 0.5;
     }
 
     // Draw body shape based on stage
@@ -103,7 +148,7 @@ export default function PetCanvas() {
       ctx.font = `${Math.max(6, size * 0.15)}px monospace`;
       ctx.textAlign = 'center';
 
-      const eyes = MOOD_EYES[mood] || '• •';
+      const eyes = MOOD_EYES[mood] || '\u2022 \u2022';
       const [leftEye, rightEye] = eyes.split(' ');
       ctx.fillText(leftEye, -eyeSpacing, eyeY);
       ctx.fillText(rightEye, eyeSpacing, eyeY);
@@ -139,13 +184,13 @@ export default function PetCanvas() {
 
     ctx.restore();
 
-    // Speech bubble
-    if (speechBubble) {
+    // Speech bubble (using client-side expiry)
+    if (visibleSpeech) {
       ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
       ctx.strokeStyle = '#1a1a2e';
       ctx.lineWidth = 1;
 
-      const bubbleW = Math.min(120, speechBubble.length * 5 + 16);
+      const bubbleW = Math.min(120, visibleSpeech.length * 5 + 16);
       const bubbleH = 18;
       const bubbleX = cx - bubbleW / 2;
       const bubbleY = cy - size * 0.5 - 35 + bounce;
@@ -168,9 +213,9 @@ export default function PetCanvas() {
       ctx.fillStyle = '#1a1a2e';
       ctx.font = '6px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(speechBubble, cx, bubbleY + 12);
+      ctx.fillText(visibleSpeech, cx, bubbleY + 12);
     }
-  }, [stage, mood, isAlive, speechBubble]);
+  }, [stage, mood, isAlive, visibleSpeech, isEvolving]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

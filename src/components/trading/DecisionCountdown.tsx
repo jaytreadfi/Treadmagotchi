@@ -4,8 +4,12 @@ import { useState, useEffect } from 'react';
 import { useTradingStore } from '@/store/useTradingStore';
 import { useConfigStore } from '@/store/useConfigStore';
 
-export default function DecisionCountdown() {
-  const lastDecisionTime = useTradingStore((s) => s.lastDecisionTime);
+interface DecisionCountdownProps {
+  clockOffset?: number;
+}
+
+export default function DecisionCountdown({ clockOffset = 0 }: DecisionCountdownProps) {
+  const nextDecisionAt = useTradingStore((s) => s.nextDecisionAt);
   const engineRunning = useTradingStore((s) => s.engineRunning);
   const mode = useConfigStore((s) => s.mode);
   const interval = useConfigStore((s) => s.decision_interval_seconds);
@@ -21,14 +25,16 @@ export default function DecisionCountdown() {
     }
 
     const tick = () => {
-      if (!lastDecisionTime) {
+      if (!nextDecisionAt) {
         setSecondsLeft(0);
         setScanning(true);
         return;
       }
 
-      const elapsed = (Date.now() - lastDecisionTime) / 1000;
-      const remaining = Math.max(0, interval - elapsed);
+      // Adjust local time by clockOffset for accuracy
+      // clockOffset = serverTime - clientTime, so server-adjusted now = Date.now() + clockOffset
+      const serverNow = Date.now() + clockOffset;
+      const remaining = Math.max(0, (nextDecisionAt - serverNow) / 1000);
       setSecondsLeft(Math.ceil(remaining));
       setScanning(remaining <= 2);
     };
@@ -36,7 +42,7 @@ export default function DecisionCountdown() {
     tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [lastDecisionTime, engineRunning, mode, interval]);
+  }, [nextDecisionAt, engineRunning, mode, clockOffset]);
 
   if (!engineRunning || mode !== 'auto') return null;
 
@@ -56,7 +62,7 @@ export default function DecisionCountdown() {
         <div className="flex-1 h-1 bg-pixel-dark rounded-full overflow-hidden">
           <div
             className={`h-full transition-all duration-1000 ${scanning ? 'bg-pixel-yellow' : 'bg-pixel-blue'}`}
-            style={{ width: `${interval > 0 ? ((interval - secondsLeft) / interval) * 100 : 0}%` }}
+            style={{ width: `${Math.max(0, Math.min(100, interval > 0 ? ((interval - secondsLeft) / interval) * 100 : 0))}%` }}
           />
         </div>
       </div>

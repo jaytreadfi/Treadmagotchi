@@ -1,7 +1,7 @@
 'use client';
 
 import { usePetStore } from '@/store/usePetStore';
-import { getEvolutionProgress } from '@/engine/pet/evolutionTracker';
+import { getEvolutionProgress } from '@/lib/pet/evolutionTracker';
 import { EVOLUTION_ORDER } from '@/lib/constants';
 
 function formatVolume(v: number): string {

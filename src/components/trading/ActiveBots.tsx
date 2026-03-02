@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import * as treadApi from '@/clients/treadApi';
+import { useTradingStore } from '@/store/useTradingStore';
 import { treadfiToPair } from '@/lib/constants';
 
 interface BotInfo {
@@ -18,43 +17,30 @@ interface BotInfo {
   pctFilled: number;
 }
 
+function mapBot(bot: Record<string, unknown>): BotInfo {
+  const childOrders = (bot.child_orders || []) as Array<Record<string, unknown>>;
+  const pair = childOrders.length
+    ? treadfiToPair(String(childOrders[0].pair || ''))
+    : 'Unknown';
+  const accountNames = (bot.account_names || []) as string[];
+  return {
+    id: String(bot.id || '').slice(0, 8),
+    pair,
+    exchange: accountNames[0] || '?',
+    status: String(bot.status || 'ACTIVE'),
+    margin: Number(bot.margin || 0),
+    leverage: Number(bot.leverage || 1),
+    spreadBps: bot.spread_bps != null ? Number(bot.spread_bps) : null,
+    refPrice: String(bot.reference_price_type || 'mid'),
+    volume: Number(bot.executed_notional || 0),
+    fees: Number(bot.fee_notional || 0),
+    pctFilled: Number(bot.pct_filled || 0),
+  };
+}
+
 export default function ActiveBots() {
-  const [bots, setBots] = useState<BotInfo[]>([]);
-
-  useEffect(() => {
-    const fetchBots = async () => {
-      try {
-        const raw = await treadApi.getActiveMmBots();
-        const mapped = raw.map((bot) => {
-          const childOrders = (bot.child_orders || []) as Array<Record<string, unknown>>;
-          const pair = childOrders.length
-            ? treadfiToPair(String(childOrders[0].pair || ''))
-            : 'Unknown';
-          const accountNames = (bot.account_names || []) as string[];
-          return {
-            id: String(bot.id || '').slice(0, 8),
-            pair,
-            exchange: accountNames[0] || '?',
-            status: String(bot.status || 'ACTIVE'),
-            margin: Number(bot.margin || 0),
-            leverage: Number(bot.leverage || 1),
-            spreadBps: bot.spread_bps != null ? Number(bot.spread_bps) : null,
-            refPrice: String(bot.reference_price_type || 'mid'),
-            volume: Number(bot.executed_notional || 0),
-            fees: Number(bot.fee_notional || 0),
-            pctFilled: Number(bot.pct_filled || 0),
-          };
-        });
-        setBots(mapped);
-      } catch {
-        // silent
-      }
-    };
-
-    fetchBots();
-    const interval = setInterval(fetchBots, 30_000);
-    return () => clearInterval(interval);
-  }, []);
+  const activeBots = useTradingStore((s) => s.activeBots);
+  const bots = activeBots.map(mapBot);
 
   if (!bots.length) {
     return (

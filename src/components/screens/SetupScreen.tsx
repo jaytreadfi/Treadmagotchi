@@ -2,13 +2,10 @@
 
 import { useState } from 'react';
 import { useConfigStore } from '@/store/useConfigStore';
-import * as treadApi from '@/clients/treadApi';
 import PixelButton from '@/components/ui/PixelButton';
 import type { TreadAccount } from '@/lib/types';
 
 export default function SetupScreen() {
-  const config = useConfigStore();
-
   const [treadKey, setTreadKey] = useState('');
   const [claudeKey, setClaudeKey] = useState('');
   const [petName, setPetName] = useState('Tready');
@@ -26,23 +23,60 @@ export default function SetupScreen() {
     setValidating(true);
     setStatus('Validating...');
 
-    localStorage.setItem('treadfi_api_key', treadKey);
+    try {
+      // Save keys to server first so configStore has them for validation
+      const keysBody: Record<string, string> = { treadfi_api_key: treadKey };
+      if (claudeKey) keysBody.anthropic_api_key = claudeKey;
 
-    const valid = await treadApi.validateToken();
-    if (!valid) {
-      setStatus('Invalid Tread API key — check and try again');
-      localStorage.removeItem('treadfi_api_key');
+      const keysRes = await fetch('/api/config/keys', {
+        method: 'POST',
+
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(keysBody),
+      });
+
+      if (!keysRes.ok) {
+        setStatus('Failed to save keys');
+        setValidating(false);
+        return;
+      }
+
+      // Validate the Tread API key (now reads from configStore)
+      const valRes = await fetch('/api/config/validate', {
+        method: 'POST',
+
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ treadfi_api_key: treadKey }),
+      });
+
+      if (!valRes.ok) {
+        setStatus('Invalid Tread API key -- check and try again');
+        setValidating(false);
+        return;
+      }
+
+      // Fetch accounts from server
+      setStatus('Fetching accounts...');
+      const accRes = await fetch('/api/config/accounts/refresh', {
+        method: 'POST',
+
+      });
+
+      if (accRes.ok) {
+        const accData = await accRes.json();
+        const fetched: TreadAccount[] = accData.accounts || [];
+        setAccounts(fetched);
+        setStatus(`Found ${fetched.length} accounts`);
+      } else {
+        setStatus('Could not fetch accounts -- continue anyway');
+      }
+
       setValidating(false);
-      return;
+      setStep('accounts');
+    } catch {
+      setStatus('Network error -- is the server running?');
+      setValidating(false);
     }
-
-    // Fetch accounts
-    setStatus('Fetching accounts...');
-    const fetched = await treadApi.getAccounts();
-    setAccounts(fetched);
-    setValidating(false);
-    setStatus(`Found ${fetched.length} accounts`);
-    setStep('accounts');
   };
 
   const toggleAccount = (name: string) => {
@@ -51,18 +85,40 @@ export default function SetupScreen() {
     );
   };
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
     const enabledAccounts = accounts.filter((a) => a.enabled);
     if (!enabledAccounts.length) {
       setStatus('Enable at least one account');
       return;
     }
 
-    config.setApiKey(treadKey);
-    if (claudeKey) config.setAnthropicKey(claudeKey);
-    config.setPetName(petName || 'Tready');
-    config.setAccounts(accounts);
-    config.setOnboarded(true);
+    setStatus('Setting up...');
+
+    try {
+      const res = await fetch('/api/config/onboard', {
+        method: 'POST',
+
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pet_name: petName || 'Tready',
+          accounts,
+          treadfi_api_key: treadKey,
+          anthropic_api_key: claudeKey || '',
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setStatus(data.error || 'Onboarding failed');
+        return;
+      }
+
+      // Server will update state via SSE, hydrating the stores
+      // The page.tsx gate will react to onboarded becoming true
+      useConfigStore.getState().hydrate({ onboarded: true });
+    } catch {
+      setStatus('Network error -- is the server running?');
+    }
   };
 
   return (
@@ -118,7 +174,7 @@ export default function SetupScreen() {
             </div>
 
             {status && (
-              <p className={`text-[8px] text-center ${status.includes('Invalid') ? 'text-pixel-red' : 'text-pixel-yellow'}`}>
+              <p className={`text-[8px] text-center ${status.includes('Invalid') || status.includes('error') ? 'text-pixel-red' : 'text-pixel-yellow'}`}>
                 {status}
               </p>
             )}

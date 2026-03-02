@@ -12,15 +12,17 @@ import DecisionCountdown from '@/components/trading/DecisionCountdown';
 import PnLDisplay from '@/components/trading/PnLDisplay';
 import SettingsPanel from '@/components/screens/SettingsPanel';
 import StatsScreen from '@/components/screens/StatsScreen';
-import { useTradingLoop } from '@/hooks/useTradingLoop';
+import ReconnectBanner from '@/components/ui/ReconnectBanner';
 
 type Overlay = 'none' | 'stats' | 'config';
 
-export default function GameScreen() {
-  const [overlay, setOverlay] = useState<Overlay>('none');
+interface GameScreenProps {
+  connected: boolean;
+  clockOffset: number;
+}
 
-  // Start the trading loop
-  useTradingLoop();
+export default function GameScreen({ connected, clockOffset }: GameScreenProps) {
+  const [overlay, setOverlay] = useState<Overlay>('none');
 
   if (overlay === 'config') {
     return <SettingsPanel onClose={() => setOverlay('none')} />;
@@ -32,8 +34,9 @@ export default function GameScreen() {
 
   return (
     <div className="min-h-screen bg-pixel-bg flex flex-col">
+      {!connected && <ReconnectBanner />}
       <StatusBar />
-      <DecisionCountdown />
+      <DecisionCountdown clockOffset={clockOffset} />
 
       {/* Main pet area */}
       <div className="flex-1 flex flex-col items-center justify-center gap-4 py-4">
