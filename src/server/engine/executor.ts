@@ -16,6 +16,7 @@
  */
 import {
   MAX_LEVERAGE, MAX_MM_DURATION, MAX_POSITION_PCT, MAX_SPREAD_BPS,
+  treadfiToPair,
 } from '@/lib/constants';
 import type { AIDecision } from '@/lib/types';
 import * as treadApi from '@/server/clients/treadApi';
@@ -25,6 +26,25 @@ import { riskManager } from '@/server/engine/riskManager';
 import { orderMonitor } from '@/server/engine/orderMonitor';
 import { dbCircuitBreaker } from '@/server/engine/dbCircuitBreaker';
 import { sseEmitter } from '@/server/engine/sseEmitter';
+
+let lastReconcileAt = 0;
+const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
+let syncRunning = false;
+
+const TERMINAL_STATUSES = new Set(['COMPLETED', 'CANCELED', 'CANCELLED', 'FAILED', 'FINISHER']);
+
+/** Parse a timestamp that may be epoch ms, epoch seconds, or an ISO string into epoch ms. Returns 0 if unparseable. */
+function parseTimestampMs(raw: unknown): number {
+  if (raw == null) return 0;
+  const n = Number(raw);
+  if (!isNaN(n) && n > 0) {
+    // Distinguish epoch seconds (< 1e12) from epoch ms (>= 1e12)
+    return n < 1e12 ? n * 1000 : n;
+  }
+  // Try ISO date string
+  const d = new Date(String(raw));
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
 
 const STATUS_MAP: Record<string, string> = {
   ACTIVE: 'active',
@@ -235,18 +255,29 @@ export async function executeMm(
 }
 
 export async function syncBotStatuses(): Promise<Array<Record<string, unknown>>> {
+  if (syncRunning) return [];
+  syncRunning = true;
+  try {
+    return await _syncBotStatusesInner();
+  } finally {
+    syncRunning = false;
+  }
+}
+
+async function _syncBotStatusesInner(): Promise<Array<Record<string, unknown>>> {
   const updated: Array<Record<string, unknown>> = [];
 
-  const trades = repository.getTrades(200);
-  const pendingTrades = trades.filter(
+  const allTrades = repository.getTrades(200);
+  const pendingTrades = allTrades.filter(
     (t) => t.treadfi_id && ['submitted', 'active'].includes(t.status),
   );
 
-  if (!pendingTrades.length) return updated;
+  // Bump page_size on first run to catch more history for reconciliation
+  const pageSize = lastReconcileAt === 0 ? 100 : 50;
 
   let orders: Array<Record<string, unknown>> = [];
   try {
-    const data = await treadApi.getMmOrders('ACTIVE,COMPLETED,CANCELED,PAUSED,FAILED', 50);
+    const data = await treadApi.getMmOrders('ACTIVE,COMPLETED,CANCELED,PAUSED,FAILED', pageSize);
     const raw = (data.market_maker_orders || data.multi_orders || data.results || data.orders || []) as Array<Record<string, unknown>>;
     orders = Array.isArray(raw) ? raw : [];
   } catch (err) {
@@ -339,5 +370,204 @@ export async function syncBotStatuses(): Promise<Array<Record<string, unknown>>>
     }
   }
 
+  // Throttled reconciliation -- find exchange orders not in our DB
+  if (Date.now() - lastReconcileAt >= RECONCILE_INTERVAL_MS) {
+    lastReconcileAt = Date.now();
+    try {
+      const reconciled = await reconcileUntracked(orders, allTrades);
+      updated.push(...reconciled);
+    } catch (err) {
+      console.error('[Executor] Reconciliation error:', err);
+    }
+  }
+
   return updated;
+}
+
+/**
+ * Reconcile exchange orders that aren't tracked in the DB.
+ *
+ * For each terminal exchange order with no matching treadfi_id in our DB:
+ * 1. Fetch full order details via getMultiOrder (pair, PnL, account)
+ * 2. Try to match against failed DB trades (same pair + account + timestamp ±2min)
+ * 3. If matched: update the failed trade with the real treadfi_id and outcome
+ * 4. If unmatched: import as a new trade with source='reconciled'
+ */
+async function reconcileUntracked(
+  orders: Array<Record<string, unknown>>,
+  dbTrades: ReturnType<typeof repository.getTrades>,
+): Promise<Array<Record<string, unknown>>> {
+  const reconciled: Array<Record<string, unknown>> = [];
+
+  // Build set of all known treadfi_ids
+  const knownIds = new Set(
+    dbTrades.filter((t) => t.treadfi_id).map((t) => t.treadfi_id!),
+  );
+
+  // Find terminal exchange orders not in our DB
+  const unmatched = orders.filter((o) => {
+    const id = String(o.id || '');
+    const status = String(o.status || '').toUpperCase();
+    return id && !knownIds.has(id) && TERMINAL_STATUSES.has(status);
+  });
+
+  if (!unmatched.length) return reconciled;
+
+  log(`Reconciliation pass starting... ${unmatched.length} untracked terminal orders found`);
+
+  // Build pool of failed DB trades (no treadfi_id) for matching
+  const failedPool = dbTrades.filter(
+    (t) => t.status === 'failed' && !t.treadfi_id,
+  );
+  const matchedFailedIds = new Set<number>();
+
+  for (const order of unmatched) {
+    const orderId = String(order.id || '');
+
+    // Fetch full order details for pair + PnL
+    let fullOrder: Record<string, unknown>;
+    try {
+      fullOrder = await treadApi.getMultiOrder(orderId);
+    } catch (err) {
+      console.error(`[Executor] Reconcile: getMultiOrder failed for ${orderId}:`, err);
+      continue;
+    }
+
+    // Extract pair from child_orders[0].pair
+    const childOrders = fullOrder.child_orders as Array<Record<string, unknown>> | undefined;
+    const rawPair = childOrders?.[0]?.pair as string | undefined;
+    const pair = rawPair ? treadfiToPair(rawPair) : null;
+    if (!pair) {
+      log(`Reconcile: skipping ${orderId} -- no pair in child_orders`);
+      continue;
+    }
+
+    // Extract account
+    const accountNames = fullOrder.account_names as string[] | undefined;
+    const account = accountNames?.[0] || String(fullOrder.account_name || 'unknown');
+
+    // Extract PnL using existing priority chain
+    let pnl = NaN;
+    const onComplete = fullOrder.on_complete_stats as Record<string, unknown> | undefined;
+    if (onComplete?.net_pnl != null) {
+      pnl = Number(onComplete.net_pnl);
+    } else if (fullOrder.realized_pnl != null) {
+      pnl = Number(fullOrder.realized_pnl);
+    } else if (order.realized_pnl != null || order.pnl != null) {
+      pnl = Number(order.realized_pnl ?? order.pnl ?? 0);
+    }
+
+    const volume = Number(order.executed_notional || fullOrder.executed_notional || 0);
+    const newStatus = mapStatus(String(order.status || ''), { ...order, ...fullOrder });
+
+    // Try to match against failed DB trades
+    const orderTimestamp = parseTimestampMs(
+      fullOrder.created_at_ms ?? fullOrder.created_at ?? order.created_at_ms ?? order.created_at,
+    );
+    const MATCH_WINDOW_MS = 2 * 60 * 1000; // 2 minutes
+
+    let bestMatch: (typeof failedPool)[number] | null = null;
+    let bestDelta = Infinity;
+
+    // Skip matching if we have no usable timestamp — go straight to import
+    if (orderTimestamp > 0) {
+      for (const failed of failedPool) {
+        if (matchedFailedIds.has(failed.id)) continue;
+        if (failed.pair !== pair) continue;
+        if (failed.account_name && account &&
+            failed.account_name.toLowerCase() !== account.toLowerCase()) continue;
+
+        const delta = Math.abs((failed.timestamp || 0) - orderTimestamp);
+        if (delta <= MATCH_WINDOW_MS && delta < bestDelta) {
+          bestMatch = failed;
+          bestDelta = delta;
+        }
+      }
+    }
+
+    if (bestMatch) {
+      // Matched: update the failed trade with real treadfi_id and outcome
+      matchedFailedIds.add(bestMatch.id);
+      try {
+        repository.updateTradeStatus(bestMatch.id, newStatus, orderId);
+        if (!isNaN(pnl)) {
+          repository.saveTradeOutcome(bestMatch.id, pnl);
+          if (pnl < 0) riskManager.recordLoss(Math.abs(pnl));
+        }
+        reconciled.push({
+          trade_id: bestMatch.id,
+          order_id: orderId,
+          status: newStatus,
+          pnl: isNaN(pnl) ? undefined : pnl,
+          volume,
+          reconcile_type: 'matched',
+        });
+        log(`Reconcile: matched failed trade #${bestMatch.id} -> ${orderId} (${pair}, pnl=${isNaN(pnl) ? '?' : pnl.toFixed(2)})`);
+      } catch (err) {
+        // UNIQUE constraint = another row already has this treadfi_id (prior import)
+        if (String(err).includes('UNIQUE constraint')) {
+          log(`Reconcile: match failed for #${bestMatch.id} -- ${orderId} already assigned to another row`);
+        } else {
+          console.error(`[Executor] Reconcile: failed to update matched trade #${bestMatch.id}:`, err);
+        }
+      }
+    } else {
+      // Unmatched: import as new trade (quantity = margin from write-ahead, unavailable here so use 0)
+      try {
+        const imported = repository.saveTrade({
+          pair,
+          side: 'mm',
+          quantity: 0,
+          price: null,
+          treadfi_id: orderId,
+          status: newStatus,
+          reasoning: 'Imported by reconciliation',
+          mm_params: '{}',
+          account_name: account,
+          exchange: null,
+          source: 'reconciled',
+          submitted_at: orderTimestamp > 0 ? orderTimestamp : Date.now(),
+          timestamp: orderTimestamp > 0 ? orderTimestamp : Date.now(),
+        });
+        if (!isNaN(pnl)) {
+          repository.saveTradeOutcome(imported.id, pnl);
+          if (pnl < 0) riskManager.recordLoss(Math.abs(pnl));
+        }
+        reconciled.push({
+          trade_id: imported.id,
+          order_id: orderId,
+          status: newStatus,
+          pnl: isNaN(pnl) ? undefined : pnl,
+          volume,
+          reconcile_type: 'imported',
+        });
+        log(`Reconcile: imported new trade ${orderId} (${pair}, pnl=${isNaN(pnl) ? '?' : pnl.toFixed(2)})`);
+      } catch (err) {
+        // UNIQUE constraint on treadfi_id means it's already imported -- idempotent
+        if (String(err).includes('UNIQUE constraint')) {
+          log(`Reconcile: ${orderId} already exists (UNIQUE), skipping`);
+        } else {
+          console.error(`[Executor] Reconcile: failed to import ${orderId}:`, err);
+        }
+      }
+    }
+  }
+
+  // Log summary
+  const matched = reconciled.filter((r) => r.reconcile_type === 'matched').length;
+  const imported = reconciled.filter((r) => r.reconcile_type === 'imported').length;
+  if (reconciled.length) {
+    log(`Reconciliation complete: ${matched} matched, ${imported} imported`);
+    repository.saveActivity({
+      timestamp: Date.now(),
+      category: 'engine',
+      action: 'reconciliation',
+      pair: null,
+      detail: JSON.stringify({ matched, imported, total: reconciled.length }),
+    });
+  } else {
+    log('Reconciliation complete: all orders accounted for');
+  }
+
+  return reconciled;
 }
