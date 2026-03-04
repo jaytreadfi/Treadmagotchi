@@ -5,21 +5,13 @@
  * Pet must exist and be alive.
  */
 import { NextResponse } from 'next/server';
-import { withAuth, rateLimit } from '@/server/middleware/auth';
+import { withAuth } from '@/server/middleware/auth';
 import { getPetState, saveActivity } from '@/server/db/repository';
 import { sseEmitter } from '@/server/engine/sseEmitter';
 
 export const dynamic = 'force-dynamic';
 
 export const POST = withAuth(async (_request: Request) => {
-  const rl = rateLimit('pet-reroll', 1, 60_000);
-  if (!rl.allowed) {
-    return NextResponse.json(
-      { error: 'Rate limited. Try again shortly.', retryAfter: rl.retryAfter },
-      { status: 429 },
-    );
-  }
-
   try {
     const pet = getPetState();
 
