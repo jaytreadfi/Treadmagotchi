@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useConfigStore } from '@/store/useConfigStore';
 import { usePetStore } from '@/store/usePetStore';
 import PixelButton from './PixelButton';
+import ConfirmDialog from './ConfirmDialog';
 
 const PET_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes
 
@@ -17,6 +18,8 @@ export default function ActionButtons({ onStatsClick, onConfigClick }: ActionBut
   const isAlive = usePetStore((s) => s.is_alive);
   const [feeding, setFeeding] = useState(false);
   const [reviving, setReviving] = useState(false);
+  const [rerolling, setRerolling] = useState(false);
+  const [showRerollConfirm, setShowRerollConfirm] = useState(false);
   const [petCooldownLeft, setPetCooldownLeft] = useState(0);
   const [lastPetTime, setLastPetTime] = useState(0);
 
@@ -81,6 +84,18 @@ export default function ActionButtons({ onStatsClick, onConfigClick }: ActionBut
     setReviving(false);
   };
 
+  const handleReroll = async () => {
+    if (rerolling) return;
+    setRerolling(true);
+    setShowRerollConfirm(false);
+    try {
+      await fetch('/api/pet/reroll', { method: 'POST' });
+    } catch {
+      // Non-fatal
+    }
+    setRerolling(false);
+  };
+
   if (!isAlive) {
     return (
       <div className="flex justify-center gap-2 px-4">
@@ -110,6 +125,15 @@ export default function ActionButtons({ onStatsClick, onConfigClick }: ActionBut
       <PixelButton onClick={onConfigClick} variant="ghost">
         Config
       </PixelButton>
+      <PixelButton onClick={() => setShowRerollConfirm(true)} variant="ghost" disabled={rerolling || showRerollConfirm}>
+        {rerolling ? '...' : 'Reroll'}
+      </PixelButton>
+      <ConfirmDialog
+        open={showRerollConfirm}
+        message="Reroll your pet's appearance?"
+        onConfirm={handleReroll}
+        onCancel={() => setShowRerollConfirm(false)}
+      />
     </div>
   );
 }

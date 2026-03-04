@@ -55,6 +55,8 @@ export const GET = withAuth(async () => {
         last_save_time: petStateRow.last_save_time,
         is_alive: petStateRow.is_alive,
         evolved_at: petStateRow.evolved_at,
+        egg_id: petStateRow.egg_id ?? null,
+        character_id: petStateRow.character_id ?? null,
       }
     : null;
 

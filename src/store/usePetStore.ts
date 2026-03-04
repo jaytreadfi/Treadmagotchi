@@ -14,6 +14,8 @@ const PET_DATA_KEYS = [
   'last_trade_time',
   'is_alive',
   'evolved_at',
+  'egg_id',
+  'character_id',
   'speech_bubble',
   'speech_bubble_until',
 ];
@@ -28,6 +30,8 @@ interface PetStore {
   last_trade_time: number | null;
   is_alive: boolean;
   evolved_at: number | null;
+  egg_id: number | null;
+  character_id: string | null;
   speech_bubble: string | null;
   speech_bubble_until: number | null;
 
@@ -55,6 +59,8 @@ export const usePetStore = create<PetStore>()((set) => ({
   last_trade_time: null,
   is_alive: true,
   evolved_at: null,
+  egg_id: null,
+  character_id: null,
   speech_bubble: null,
   speech_bubble_until: null,
 

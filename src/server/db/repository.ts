@@ -317,7 +317,7 @@ export function updatePetState(updates: Partial<PetStateRow>): void {
 }
 
 /** Create the initial pet state if none exists. */
-export function initPetState(name: string): void {
+export function initPetState(name: string, eggId?: number): void {
   const existing = getPetState();
   if (existing) return;
 
@@ -335,6 +335,7 @@ export function initPetState(name: string): void {
       consecutive_losses: 0,
       last_save_time: Date.now(),
       is_alive: true,
+      egg_id: eggId ?? Math.floor(Math.random() * 59) + 1,
     })
     .run();
 }

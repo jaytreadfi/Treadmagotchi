@@ -73,6 +73,19 @@ export const CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
 // ── Canvas ──
 export const CANVAS_LOGICAL_SIZE = 160;
 
+// ── Sprites & Animation ──
+export const EGG_COUNT = 59;
+export const CHARACTER_FRAME_SIZE = 24;
+export const WALK_SPEED = 0.4;
+export const WALK_ANIM_FPS = 8;
+export const IDLE_MIN_FRAMES = 180;  // ~3 sec at 60fps
+export const IDLE_MAX_FRAMES = 480;  // ~8 sec at 60fps
+export const SIT_MIN_FRAMES = 240;   // ~4 sec at 60fps
+export const SIT_MAX_FRAMES = 600;   // ~10 sec at 60fps
+export const HAPPY_BURST_FRAMES = 90; // ~1.5 sec at 60fps
+export const WALK_BOUNDS_MIN = 36;   // matches clearing area
+export const WALK_BOUNDS_MAX = 124;  // matches clearing area
+
 // ── Mood speech bubbles ──
 export const MOOD_SPEECHES: Record<string, string[]> = {
   dead: ['...'],

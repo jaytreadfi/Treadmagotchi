@@ -133,6 +133,8 @@ export const petState = sqliteTable('pet_state', {
   last_save_time: integer('last_save_time').notNull(),
   is_alive: integer('is_alive', { mode: 'boolean' }).notNull().default(true),
   evolved_at: integer('evolved_at'),
+  egg_id: integer('egg_id'),
+  character_id: text('character_id'),
 });
 
 export type PetStateRow = typeof petState.$inferSelect;

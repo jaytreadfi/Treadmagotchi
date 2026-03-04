@@ -89,6 +89,8 @@ interface StateSnapshot {
     last_save_time: number;
     is_alive: boolean;
     evolved_at: number | null;
+    egg_id: number | null;
+    character_id: string | null;
   } | null;
   decisionLog: DecisionLogEntry[];
   engineStatus: {
@@ -188,6 +190,8 @@ function dispatchEvent(type: SSEEventType, data: unknown): void {
       if (d.last_trade_time !== undefined) patch.last_trade_time = d.last_trade_time;
       if (d.is_alive != null) patch.is_alive = d.is_alive;
       if (d.evolved_at !== undefined) patch.evolved_at = d.evolved_at;
+      if (d.egg_id !== undefined) patch.egg_id = d.egg_id;
+      if (d.character_id !== undefined) patch.character_id = d.character_id;
 
       if (Object.keys(patch).length > 0) {
         pet.hydrate(patch);
@@ -368,6 +372,8 @@ function hydrateFromSnapshot(snapshot: StateSnapshot): void {
       last_trade_time: ps.last_trade_time,
       is_alive: ps.is_alive,
       evolved_at: ps.evolved_at,
+      egg_id: ps.egg_id,
+      character_id: ps.character_id,
     });
   }
 
