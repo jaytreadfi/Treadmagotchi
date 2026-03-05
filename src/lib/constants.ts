@@ -22,7 +22,7 @@ export const ORDER_DRIFT_THRESHOLD_PCT = 0.005;            // 0.5% price drift
 export const ORDER_MIN_FILL_PCT = 20;                      // cancel if <20% filled at 30 min
 
 // ── Trading intervals (ms) ──
-export const BOT_SYNC_INTERVAL_MS = 30 * 1000;          // 30s
+export const BOT_SYNC_INTERVAL_MS = 120 * 1000;         // 2min
 
 // ── Treadtools ──
 export const TREADTOOLS_MIN_SCORE = 70;
@@ -71,7 +71,8 @@ export const WAF_USER_AGENT =
 export const CLAUDE_MODEL = 'claude-haiku-4-5-20251001';
 
 // ── Canvas ──
-export const CANVAS_LOGICAL_SIZE = 160;
+export const CANVAS_WIDTH = 284;
+export const CANVAS_HEIGHT = 160;
 
 // ── Sprites & Animation ──
 export const EGG_COUNT = 59;
@@ -83,8 +84,10 @@ export const IDLE_MAX_FRAMES = 480;  // ~8 sec at 60fps
 export const SIT_MIN_FRAMES = 240;   // ~4 sec at 60fps
 export const SIT_MAX_FRAMES = 600;   // ~10 sec at 60fps
 export const HAPPY_BURST_FRAMES = 90; // ~1.5 sec at 60fps
-export const WALK_BOUNDS_MIN = 36;   // matches clearing area
-export const WALK_BOUNDS_MAX = 124;  // matches clearing area
+export const WALK_BOUNDS_MIN_X = 20;
+export const WALK_BOUNDS_MAX_X = 260;
+export const WALK_BOUNDS_MIN_Y = 36;
+export const WALK_BOUNDS_MAX_Y = 124;
 
 // ── Mood speech bubbles ──
 export const MOOD_SPEECHES: Record<string, string[]> = {

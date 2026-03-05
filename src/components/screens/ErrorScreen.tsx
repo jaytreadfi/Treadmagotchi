@@ -9,16 +9,18 @@ interface ErrorScreenProps {
 
 export default function ErrorScreen({ message, onRetry }: ErrorScreenProps) {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-pixel-bg gap-6 p-4">
-      <div className="text-pixel-red text-xs">ERROR</div>
-      <div className="w-full max-w-sm bg-pixel-dark border-2 border-pixel-red/50 rounded-lg p-6">
-        <p className="text-[9px] text-center opacity-70 mb-4 break-words">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-void gap-6 p-4">
+      <div className="text-hp text-sm font-pixel">ERROR</div>
+      <div className="w-full max-w-sm rpg-frame p-6">
+        <p className="text-[12px] text-center text-white/70 mb-5 break-words font-pixel">
           {message}
         </p>
         {onRetry && (
-          <PixelButton onClick={onRetry} variant="danger">
-            Retry
-          </PixelButton>
+          <div className="flex justify-center">
+            <PixelButton onClick={onRetry} variant="danger">
+              Retry
+            </PixelButton>
+          </div>
         )}
       </div>
     </div>

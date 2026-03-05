@@ -11,4 +11,139 @@
   --color-pixel-blue: #60a5fa;
   --color-pixel-bg: #0a0a1a;
   --font-pixel: 'Press Start 2P', monospace;
+
+  /* RPG theme extensions */
+  --color-void: #0a0a1a;
+  --color-deep: #111827;
+  --color-panel: #1a1a2e;
+  --color-surface: #16213e;
+  --color-raised: #1e2a4a;
+  --color-gold: #ffd700;
+  --color-gold-dim: #b8960c;
+  --color-hp: #e94560;
+  --color-hunger: #fbbf24;
+  --color-joy: #22c55e;
+  --color-energy: #60a5fa;
+  --color-xp: #a855f7;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-deep);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-gold-dim);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gold);
+}
+
+/* ── RPG Frame ── */
+.rpg-frame {
+  position: relative;
+  border: 2px solid var(--color-gold-dim);
+  background: var(--color-panel);
+  clip-path: polygon(
+    8px 0, calc(100% - 8px) 0,
+    100% 8px, 100% calc(100% - 8px),
+    calc(100% - 8px) 100%, 8px 100%,
+    0 calc(100% - 8px), 0 8px
+  );
+}
+
+.rpg-frame::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border: 1px solid var(--color-gold);
+  clip-path: polygon(
+    7px 0, calc(100% - 7px) 0,
+    100% 7px, 100% calc(100% - 7px),
+    calc(100% - 7px) 100%, 7px 100%,
+    0 calc(100% - 7px), 0 7px
+  );
+  pointer-events: none;
+}
+
+.rpg-border {
+  border: 2px solid var(--color-gold-dim);
+  box-shadow: inset 0 0 0 1px var(--color-gold);
+}
+
+/* ── Segmented stat bar ── */
+.stat-bar-track {
+  background: var(--color-deep);
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 9px,
+    var(--color-void) 9px,
+    var(--color-void) 10px
+  );
+}
+
+/* ── RPG Panel ── */
+.rpg-panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-gold-dim);
+  box-shadow: inset 0 1px 0 rgba(255, 215, 0, 0.1);
+}
+
+/* ── Animations ── */
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes slide-out-right {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes trade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes scan-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out forwards;
+}
+.animate-slide-out-right {
+  animation: slide-out-right 0.3s ease-in forwards;
+}
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out forwards;
+}
+.animate-trade-in {
+  animation: trade-in 0.3s ease-out forwards;
+}
+.animate-scan-pulse {
+  animation: scan-pulse 1.5s ease-in-out infinite;
+}
+
+/* ── Canvas container ── */
+.canvas-logical-size {
+  width: 160px;
+  height: 160px;
 }

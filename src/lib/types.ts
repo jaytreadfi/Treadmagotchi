@@ -141,8 +141,10 @@ export interface TradeRecord {
   status: string;
   reasoning: string;
   mm_params: string;
+  account_name: string | null;
   source: string;
   timestamp: number;
+  realized_pnl: number | null;
 }
 
 export interface TradeOutcome {

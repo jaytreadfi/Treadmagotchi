@@ -57,6 +57,7 @@ export const GET = withAuth(async () => {
         evolved_at: petStateRow.evolved_at,
         egg_id: petStateRow.egg_id ?? null,
         character_id: petStateRow.character_id ?? null,
+        map_id: petStateRow.map_id ?? 'cozy',
       }
     : null;
 
@@ -102,8 +103,8 @@ export const GET = withAuth(async () => {
     lastSyncTime: null as number | null,
   };
   let activeBots: unknown[] = [];
-  let riskMetrics: unknown = null;
-  let positions: unknown[] = [];
+  const riskMetrics: unknown = null;
+  const positions: unknown[] = [];
 
   try {
     const { engine } = await import('@/server/engine/index');

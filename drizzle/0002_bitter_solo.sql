@@ -1,0 +1,1 @@
+ALTER TABLE `pet_state` ADD `map_id` text;

@@ -51,3 +51,8 @@ export function preloadCharacter(sheet: string): Promise<HTMLImageElement> {
 export function preloadShadow(): Promise<HTMLImageElement> {
   return preloadImage('/sprites/characters/shadow.png');
 }
+
+/** Preload a map background image. */
+export function preloadMap(src: string): Promise<HTMLImageElement> {
+  return preloadImage(src);
+}

@@ -7,7 +7,7 @@
  * Also exposes additional functions for server-only tables
  * (pet_state, decision_log, risk_state, daily_losses, bot_volumes).
  */
-import { eq, desc, and, or, inArray, lt, sql } from 'drizzle-orm';
+import { eq, desc, and, or, inArray, lt } from 'drizzle-orm';
 import { db, sqlite } from './index';
 import {
   trades,
@@ -117,6 +117,63 @@ export function getTrades(limit = 50, before?: number, beforeId?: number): Trade
   return db
     .select()
     .from(trades)
+    .orderBy(desc(trades.timestamp), desc(trades.id))
+    .limit(limit)
+    .all();
+}
+
+/**
+ * Fetch trades LEFT JOINed with trade_outcomes to include realized_pnl.
+ * Same cursor-based pagination as getTrades.
+ */
+export function getTradesWithPnl(limit = 50, before?: number, beforeId?: number) {
+  const selection = {
+    id: trades.id,
+    treadfi_id: trades.treadfi_id,
+    pair: trades.pair,
+    side: trades.side,
+    quantity: trades.quantity,
+    price: trades.price,
+    status: trades.status,
+    reasoning: trades.reasoning,
+    mm_params: trades.mm_params,
+    account_name: trades.account_name,
+    exchange: trades.exchange,
+    source: trades.source,
+    submitted_at: trades.submitted_at,
+    timestamp: trades.timestamp,
+    realized_pnl: tradeOutcomes.realized_pnl,
+  };
+
+  if (before != null && beforeId != null) {
+    return db
+      .select(selection)
+      .from(trades)
+      .leftJoin(tradeOutcomes, eq(trades.id, tradeOutcomes.trade_id))
+      .where(
+        or(
+          lt(trades.timestamp, before),
+          and(eq(trades.timestamp, before), lt(trades.id, beforeId)),
+        ),
+      )
+      .orderBy(desc(trades.timestamp), desc(trades.id))
+      .limit(limit)
+      .all();
+  }
+  if (before != null) {
+    return db
+      .select(selection)
+      .from(trades)
+      .leftJoin(tradeOutcomes, eq(trades.id, tradeOutcomes.trade_id))
+      .where(lt(trades.timestamp, before))
+      .orderBy(desc(trades.timestamp), desc(trades.id))
+      .limit(limit)
+      .all();
+  }
+  return db
+    .select(selection)
+    .from(trades)
+    .leftJoin(tradeOutcomes, eq(trades.id, tradeOutcomes.trade_id))
     .orderBy(desc(trades.timestamp), desc(trades.id))
     .limit(limit)
     .all();
@@ -288,7 +345,7 @@ export function updatePetState(updates: Partial<PetStateRow>): void {
   const existing = getPetState();
   if (!existing) {
     // No row yet — insert with defaults merged with updates
-    const { id: _uid, ...safeUpdates } = updates;
+    const { id: _, ...safeUpdates } = updates;
     db.insert(petState)
       .values({
         id: 1,
@@ -308,7 +365,7 @@ export function updatePetState(updates: Partial<PetStateRow>): void {
       .run();
   } else {
     // Row exists — update only provided fields
-    const { id: _id, ...rest } = updates;
+    const { id: __, ...rest } = updates;
     db.update(petState)
       .set(rest)
       .where(eq(petState.id, 1))

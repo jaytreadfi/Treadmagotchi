@@ -6,7 +6,7 @@
  */
 import { NextResponse } from 'next/server';
 import { withAuth } from '@/server/middleware/auth';
-import { getTrades } from '@/server/db/repository';
+import { getTradesWithPnl } from '@/server/db/repository';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,7 +28,7 @@ export const GET = withAuth(async (request: Request) => {
       return NextResponse.json({ error: 'Invalid "beforeId" parameter' }, { status: 400 });
     }
 
-    const trades = getTrades(limit, before, beforeId);
+    const trades = getTradesWithPnl(limit, before, beforeId);
 
     // Provide composite cursor for next page (timestamp + id)
     const lastTrade = trades.length === limit && trades.length > 0

@@ -135,6 +135,7 @@ export const petState = sqliteTable('pet_state', {
   evolved_at: integer('evolved_at'),
   egg_id: integer('egg_id'),
   character_id: text('character_id'),
+  map_id: text('map_id').default('cozy'),
 });
 
 export type PetStateRow = typeof petState.$inferSelect;

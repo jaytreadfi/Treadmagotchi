@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useConfigStore } from '@/store/useConfigStore';
 import { useSSE } from '@/hooks/useSSE';
-import SetupScreen from '@/components/screens/SetupScreen';
-import GameScreen from '@/components/screens/GameScreen';
+import SetupScreen from '@/components/setup/SetupScreen';
+import AppShell from '@/components/shell/AppShell';
 import LoadingScreen from '@/components/screens/LoadingScreen';
 import ErrorScreen from '@/components/screens/ErrorScreen';
 import MigrationBanner, {
@@ -20,13 +20,10 @@ export default function Home() {
   const [migrationNeeded, setMigrationNeeded] = useState(false);
   const [migrationChecked, setMigrationChecked] = useState(false);
 
-  // Check whether we should show the migration banner once the user is
-  // onboarded and SSE is connected (i.e. server is ready).
   useEffect(() => {
     if (!onboarded || sse.loading || sse.error) return;
     if (migrationChecked) return;
 
-    // If the user already dismissed the banner this session, skip.
     if (sessionStorage.getItem('migration-dismissed') === '1') {
       setMigrationChecked(true);
       return;
@@ -54,12 +51,10 @@ export default function Home() {
     };
   }, [onboarded, sse.loading, sse.error, migrationChecked]);
 
-  // Tri-state loading gate
   if (sse.loading) {
     return <LoadingScreen />;
   }
 
-  // Connection errors -- show error screen with retry
   if (sse.error) {
     return (
       <ErrorScreen
@@ -73,19 +68,17 @@ export default function Home() {
     return <SetupScreen />;
   }
 
-  // Show migration banner above the game screen when needed
   return (
     <>
       {migrationNeeded && migrationChecked && (
         <MigrationBanner
           onComplete={() => {
             setMigrationNeeded(false);
-            // Force a full reload so the game picks up migrated server data
             window.location.reload();
           }}
         />
       )}
-      <GameScreen connected={sse.connected} clockOffset={sse.clockOffset} />
+      <AppShell connected={sse.connected} clockOffset={sse.clockOffset} />
     </>
   );
 }

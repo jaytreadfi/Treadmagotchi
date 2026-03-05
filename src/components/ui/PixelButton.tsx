@@ -15,12 +15,21 @@ export default function PixelButton({
   disabled = false,
   className = '',
 }: PixelButtonProps) {
-  const base = 'px-3 py-2 text-[8px] font-pixel border-2 transition-all active:translate-y-0.5 disabled:opacity-30 disabled:cursor-not-allowed';
+  const base =
+    'px-5 py-3 text-sm font-pixel border-2 transition-all cursor-pointer ' +
+    'disabled:opacity-30 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none ' +
+    'active:translate-y-[4px] active:shadow-none';
 
   const variants = {
-    primary: 'border-pixel-accent text-pixel-accent hover:bg-pixel-accent/10',
-    danger: 'border-pixel-red text-pixel-red hover:bg-pixel-red/10',
-    ghost: 'border-white/20 text-white/70 hover:border-white/40',
+    primary:
+      'border-gold-dim text-gold bg-panel shadow-[0_4px_0_theme(colors.gold-dim)] ' +
+      'hover:bg-raised hover:border-gold',
+    danger:
+      'border-hp text-hp bg-panel shadow-[0_4px_0_theme(colors.hp)] ' +
+      'hover:bg-hp/10',
+    ghost:
+      'border-white/20 text-white/70 bg-transparent shadow-[0_4px_0_rgba(255,255,255,0.1)] ' +
+      'hover:border-white/40 hover:text-white/90',
   };
 
   return (

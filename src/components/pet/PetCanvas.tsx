@@ -2,9 +2,10 @@
 
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { usePetStore } from '@/store/usePetStore';
-import { CANVAS_LOGICAL_SIZE } from '@/lib/constants';
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from '@/lib/constants';
 import { getCharacterById } from '@/lib/characters';
-import { preloadImage, preloadEgg, preloadShadow } from '@/lib/sprites';
+import { getMapById } from '@/lib/maps';
+import { preloadImage, preloadEgg, preloadShadow, preloadMap, getCached } from '@/lib/sprites';
 import {
   createCharacterState,
   tickCharacter,
@@ -32,6 +33,7 @@ export default function PetCanvas() {
   const evolvedAt = usePetStore((s) => s.evolved_at);
   const eggId = usePetStore((s) => s.egg_id);
   const characterId = usePetStore((s) => s.character_id);
+  const mapId = usePetStore((s) => s.map_id);
 
   const [assetsReady, setAssetsReady] = useState(false);
   const [isHatching, setIsHatching] = useState(false);
@@ -57,6 +59,13 @@ export default function PetCanvas() {
         }
       }
 
+      if (mapId) {
+        const mapDef = getMapById(mapId);
+        if (mapDef) {
+          promises.push(preloadMap(mapDef.src));
+        }
+      }
+
       await Promise.all(promises);
       if (!cancelled) {
         setAssetsReady(true);
@@ -64,7 +73,7 @@ export default function PetCanvas() {
     }
     load();
     return () => { cancelled = true; };
-  }, [eggId, characterId]);
+  }, [eggId, characterId, mapId]);
 
   // ── Detect EGG→CRITTER hatching ──
   useEffect(() => {
@@ -112,11 +121,21 @@ export default function PetCanvas() {
     }
   }, [evolvedAt]);
 
+  // ── Resolve map image src ──
+  const mapSrc = mapId ? getMapById(mapId)?.src ?? null : null;
+
   // ── Main draw callback ──
   const draw = useCallback((ctx: CanvasRenderingContext2D, frame: number) => {
-    const S = CANVAS_LOGICAL_SIZE;
+    const W = CANVAS_WIDTH;
+    const H = CANVAS_HEIGHT;
     ctx.imageSmoothingEnabled = false;
-    ctx.clearRect(0, 0, S, S);
+    ctx.clearRect(0, 0, W, H);
+
+    // Draw map background
+    if (mapSrc) {
+      const mapImg = getCached(mapSrc);
+      if (mapImg) ctx.drawImage(mapImg, 0, 0, W, H);
+    }
 
     // ── HATCHING ANIMATION ──
     if (isHatching) {
@@ -125,34 +144,30 @@ export default function PetCanvas() {
       const progress = hf / HATCH_DURATION_FRAMES;
 
       if (progress < 0.5) {
-        // Phase 1: Egg shakes intensely (no background)
         const intensity = 2 + progress * 16;
         if (eggId) {
           drawEgg(ctx, `/sprites/eggs/${eggId}.png`, frame, intensity);
         }
-        // Crack lines appear
         if (progress > 0.25) {
           ctx.save();
           ctx.strokeStyle = '#fff';
           ctx.lineWidth = 1;
           ctx.globalAlpha = (progress - 0.25) / 0.25;
           ctx.beginPath();
-          ctx.moveTo(74, 76); ctx.lineTo(80, 68); ctx.lineTo(86, 78);
-          ctx.moveTo(78, 82); ctx.lineTo(82, 72);
-          ctx.moveTo(72, 84); ctx.lineTo(76, 74); ctx.lineTo(84, 82);
+          ctx.moveTo(136, 76); ctx.lineTo(142, 68); ctx.lineTo(148, 78);
+          ctx.moveTo(140, 82); ctx.lineTo(144, 72);
+          ctx.moveTo(134, 84); ctx.lineTo(138, 74); ctx.lineTo(146, 82);
           ctx.stroke();
           ctx.restore();
         }
       } else if (progress < 0.65) {
-        // Phase 2: White flash fades out
         const flashProgress = (progress - 0.5) / 0.15;
         ctx.save();
         ctx.fillStyle = '#fff';
         ctx.globalAlpha = 1 - flashProgress;
-        ctx.fillRect(0, 0, S, S);
+        ctx.fillRect(0, 0, W, H);
         ctx.restore();
       } else {
-        // Phase 3: Character fades in with sparkles
         const fadeProgress = Math.min(1, (progress - 0.65) / 0.15);
         if (characterId) {
           const charDef = getCharacterById(characterId);
@@ -163,7 +178,6 @@ export default function PetCanvas() {
             ctx.restore();
           }
         }
-        // Sparkle burst
         const sparkleAlpha = 1 - (progress - 0.65) / 0.35;
         if (sparkleAlpha > 0) {
           ctx.save();
@@ -172,29 +186,28 @@ export default function PetCanvas() {
           for (let i = 0; i < 8; i++) {
             const angle = (i * Math.PI * 2) / 8 + frame * 0.02;
             const dist = 8 + (progress - 0.65) * 100;
-            const sx = 80 + Math.cos(angle) * dist;
+            const sx = 142 + Math.cos(angle) * dist;
             const sy = 80 + Math.sin(angle) * dist;
             ctx.fillRect(sx - 1, sy - 1, 3, 3);
           }
           ctx.restore();
         }
       }
-      drawSpeechBubble(ctx, visibleSpeech, 80, 50);
+      drawSpeechBubble(ctx, visibleSpeech, 142, 50);
       return;
     }
 
-    // ── EGG STAGE — No background, just floating egg ──
+    // ── EGG STAGE ──
     if (stage === 'EGG') {
       if (eggId) {
-        // Gentle floating bob animation
         const bob = Math.sin(frame * 0.04) * 4;
         drawEgg(ctx, `/sprites/eggs/${eggId}.png`, frame, 1.5, bob);
       }
-      drawSpeechBubble(ctx, visibleSpeech, 80, 50);
+      drawSpeechBubble(ctx, visibleSpeech, 142, 50);
       return;
     }
 
-    // ── POST-HATCH: Walking character (no background) ──
+    // ── POST-HATCH: Walking character ──
     if (characterId) {
       const charDef = getCharacterById(characterId);
       if (charDef) {
@@ -213,16 +226,14 @@ export default function PetCanvas() {
           ctx.restore();
         }
 
-        // Mood particles
         if (isAlive && mood !== 'content') {
           drawMoodEffect(ctx, mood, cs.x, cs.y, frame);
         }
 
-        // Speech bubble anchored above character
         drawSpeechBubble(ctx, visibleSpeech, cs.x + 12, cs.y - 14);
       }
     }
-  }, [stage, mood, isAlive, visibleSpeech, isEvolving, isHatching, eggId, characterId]);
+  }, [stage, mood, isAlive, visibleSpeech, isEvolving, isHatching, eggId, characterId, mapSrc]);
 
   // ── Animation loop ──
   useEffect(() => {
@@ -244,9 +255,9 @@ export default function PetCanvas() {
   return (
     <canvas
       ref={canvasRef}
-      width={CANVAS_LOGICAL_SIZE}
-      height={CANVAS_LOGICAL_SIZE}
-      className="w-80 h-80 mx-auto"
+      width={CANVAS_WIDTH}
+      height={CANVAS_HEIGHT}
+      className="w-full h-full"
       style={{ imageRendering: 'pixelated' }}
     />
   );
@@ -269,7 +280,7 @@ function drawSpeechBubble(
 
   const bubbleW = Math.min(120, text.length * 5 + 16);
   const bubbleH = 18;
-  const bubbleX = Math.max(2, Math.min(158 - bubbleW, anchorX - bubbleW / 2));
+  const bubbleX = Math.max(2, Math.min(CANVAS_WIDTH - 2 - bubbleW, anchorX - bubbleW / 2));
   const bubbleY = Math.max(2, anchorY - 10);
 
   ctx.beginPath();

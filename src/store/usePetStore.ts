@@ -16,6 +16,7 @@ const PET_DATA_KEYS = [
   'evolved_at',
   'egg_id',
   'character_id',
+  'map_id',
   'speech_bubble',
   'speech_bubble_until',
 ];
@@ -32,6 +33,7 @@ interface PetStore {
   evolved_at: number | null;
   egg_id: number | null;
   character_id: string | null;
+  map_id: string | null;
   speech_bubble: string | null;
   speech_bubble_until: number | null;
 
@@ -61,6 +63,7 @@ export const usePetStore = create<PetStore>()((set) => ({
   evolved_at: null,
   egg_id: null,
   character_id: null,
+  map_id: 'cozy',
   speech_bubble: null,
   speech_bubble_until: null,
 

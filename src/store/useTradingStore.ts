@@ -15,6 +15,7 @@ const TRADING_DATA_KEYS = [
   'nextDecisionAt',
   'serverEpoch',
   'activeBots',
+  'tradeCompletedAt',
 ];
 
 interface TradingState {
@@ -28,6 +29,7 @@ interface TradingState {
   nextDecisionAt: number | null;
   serverEpoch: number;
   activeBots: Array<Record<string, unknown>>;
+  tradeCompletedAt: number;
 
   hydrate: (data: Partial<TradingState>) => void;
   setAccount: (account: AccountInfo) => void;
@@ -53,6 +55,7 @@ export const useTradingStore = create<TradingState>()((set) => ({
   nextDecisionAt: null,
   serverEpoch: 0,
   activeBots: [],
+  tradeCompletedAt: 0,
 
   hydrate: (data) => set(pickData(data, TRADING_DATA_KEYS)),
   setAccount: (account) => set({ account }),

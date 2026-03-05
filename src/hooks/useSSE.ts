@@ -91,6 +91,7 @@ interface StateSnapshot {
     evolved_at: number | null;
     egg_id: number | null;
     character_id: string | null;
+    map_id: string | null;
   } | null;
   decisionLog: DecisionLogEntry[];
   engineStatus: {
@@ -192,6 +193,7 @@ function dispatchEvent(type: SSEEventType, data: unknown): void {
       if (d.evolved_at !== undefined) patch.evolved_at = d.evolved_at;
       if (d.egg_id !== undefined) patch.egg_id = d.egg_id;
       if (d.character_id !== undefined) patch.character_id = d.character_id;
+      if (d.map_id !== undefined) patch.map_id = d.map_id;
 
       if (Object.keys(patch).length > 0) {
         pet.hydrate(patch);
@@ -258,6 +260,7 @@ function dispatchEvent(type: SSEEventType, data: unknown): void {
       if (d.account) trading.setAccount(d.account);
       if (d.positions) trading.setPositions(d.positions);
       if (d.riskMetrics) trading.setRiskMetrics(d.riskMetrics);
+      trading.hydrate({ tradeCompletedAt: Date.now() });
       break;
     }
 
@@ -374,6 +377,7 @@ function hydrateFromSnapshot(snapshot: StateSnapshot): void {
       evolved_at: ps.evolved_at,
       egg_id: ps.egg_id,
       character_id: ps.character_id,
+      map_id: ps.map_id,
     });
   }
 
@@ -610,7 +614,7 @@ export function useSSE(): UseSSEReturn {
       clearTimeout(connectionTimeout);
       es.close();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   return { loading, connected, error, clockOffset };
 }

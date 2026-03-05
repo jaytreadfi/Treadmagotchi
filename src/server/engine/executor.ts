@@ -272,10 +272,9 @@ async function _syncBotStatusesInner(): Promise<Array<Record<string, unknown>>> 
     (t) => t.treadfi_id && ['submitted', 'active'].includes(t.status),
   );
 
-  // Bump page_size on first run to catch more history for reconciliation
-  const pageSize = lastReconcileAt === 0 ? 100 : 50;
+  const pageSize = 50;
 
-  let orders: Array<Record<string, unknown>> = [];
+  let orders: Array<Record<string, unknown>>;
   try {
     const data = await treadApi.getMmOrders('ACTIVE,COMPLETED,CANCELED,PAUSED,FAILED', pageSize);
     const raw = (data.market_maker_orders || data.multi_orders || data.results || data.orders || []) as Array<Record<string, unknown>>;
@@ -306,10 +305,15 @@ async function _syncBotStatusesInner(): Promise<Array<Record<string, unknown>>> 
     }
 
     if (['completed', 'stop_loss', 'take_profit', 'canceled', 'failed'].includes(newStatus)) {
-      let pnl = 0;
+      let pnl: number;
+      let finalStatus = newStatus;
       // Priority: on_complete_stats.net_pnl > order.realized_pnl > -fee_notional
       try {
         const fullOrder = await treadApi.getMultiOrder(trade.treadfi_id!);
+
+        // Re-derive status with full order data (has grid_stop_loss_triggered etc.)
+        finalStatus = mapStatus(String(order.status || ''), { ...order, ...fullOrder });
+
         const onComplete = fullOrder.on_complete_stats as Record<string, unknown> | undefined;
         if (onComplete?.net_pnl != null) {
           pnl = Number(onComplete.net_pnl);
@@ -325,6 +329,13 @@ async function _syncBotStatusesInner(): Promise<Array<Record<string, unknown>>> 
       } catch (err) {
         console.error('[Executor] PnL reconciliation failed for', trade.treadfi_id, err);
         pnl = Number(order.realized_pnl || order.pnl || NaN);
+      }
+
+      // Update DB with corrected status if it changed after re-derivation
+      if (finalStatus !== newStatus && trade.id != null) {
+        try {
+          repository.updateTradeStatus(trade.id, finalStatus);
+        } catch { /* already updated above, non-fatal */ }
       }
 
       // Use actual executed_notional from Tread API (real filled volume)
@@ -347,13 +358,13 @@ async function _syncBotStatusesInner(): Promise<Array<Record<string, unknown>>> 
         if (pnl < 0) riskManager.recordLoss(Math.abs(pnl));
       }
 
-      updated.push({ trade_id: trade.id, order_id: trade.treadfi_id, status: newStatus, pnl: pnlUncertain ? undefined : pnl, volume });
+      updated.push({ trade_id: trade.id, order_id: trade.treadfi_id, status: finalStatus, pnl: pnlUncertain ? undefined : pnl, volume });
 
       // Emit SSE event for completed trade
       sseEmitter.emit('trade_completed', {
         pair: trade.pair,
         treadfi_id: trade.treadfi_id,
-        status: newStatus,
+        status: finalStatus,
         pnl: pnlUncertain ? null : pnl,
         volume,
       });
