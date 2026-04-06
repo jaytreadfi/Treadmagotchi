@@ -55,7 +55,7 @@ export const usePetStore = create<PetStore>()((set) => ({
   name: 'Tready',
   vitals: { ...DEFAULT_VITALS },
   mood: 'content',
-  stage: 'EGG',
+  stage: 'CRITTER',
   cumulative_volume: 0,
   consecutive_losses: 0,
   last_trade_time: null,

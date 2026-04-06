@@ -15,7 +15,7 @@ import { dbCircuitBreaker } from '@/server/engine/dbCircuitBreaker';
 import { deriveMood, type MoodContext } from '@/lib/pet/moodEngine';
 import { checkEvolution } from '@/lib/pet/evolutionTracker';
 import { applyOfflineDecay, feedPet } from '@/lib/pet/hungerSystem';
-import { MOOD_SPEECHES, EGG_COUNT } from '@/lib/constants';
+import { MOOD_SPEECHES } from '@/lib/constants';
 import { pickRandomCharacter } from '@/lib/characters';
 import type { PetMode, EvolutionStage } from '@/lib/types';
 
@@ -90,22 +90,21 @@ function getCurrentPetSnapshot(): Record<string, unknown> {
 export function initPetState(): void {
   const pet = repository.getPetState();
   if (!pet) {
-    // No pet row yet -- initPetState in repository handles creation
-    const eggId = Math.floor(Math.random() * EGG_COUNT) + 1;
-    repository.initPetState('Treadmagotchi', eggId);
+    // No pet row yet -- start as CRITTER with a character
+    const characterId = pickRandomCharacter().id;
+    repository.initPetState('Treadmagotchi', characterId);
     return;
   }
 
-  // Backfill egg_id for existing pets that predate the sprite system
-  if (pet.egg_id == null) {
-    const backfill: Record<string, unknown> = {
-      egg_id: Math.floor(Math.random() * EGG_COUNT) + 1,
-    };
-    // If already hatched (past EGG stage) but no character_id, assign one
-    if (pet.stage !== 'EGG' && !pet.character_id) {
-      backfill.character_id = pickRandomCharacter().id;
-    }
-    repository.updatePetState(backfill);
+  // Backfill character_id for existing pets missing one
+  if (!pet.character_id) {
+    repository.updatePetState({
+      character_id: pickRandomCharacter().id,
+      stage: 'CRITTER',
+    });
+  } else if (pet.stage === 'EGG') {
+    // Migrate any existing EGG pets to CRITTER
+    repository.updatePetState({ stage: 'CRITTER' });
   }
 
   const elapsed = (Date.now() - pet.last_save_time) / 60000;
@@ -264,11 +263,6 @@ export function onTradeCompleted(pnl: number, volume: number): void {
     updates.stage = newStage;
     updates.evolved_at = Date.now();
 
-    // Assign a random character on first evolution (EGG → CRITTER)
-    if (pet.stage === 'EGG' && !pet.character_id) {
-      updates.character_id = pickRandomCharacter().id;
-    }
-
     repository.saveEvent('evolution', JSON.stringify({
       from: pet.stage,
       to: newStage,
@@ -312,12 +306,11 @@ export function revivePet(): void {
     health: 50,
     consecutive_losses: 0,
     cumulative_volume: 0,
-    stage: 'EGG',
+    stage: 'CRITTER',
     mood: 'content',
     evolved_at: null,
     last_save_time: Date.now(),
-    egg_id: Math.floor(Math.random() * EGG_COUNT) + 1,
-    character_id: null,
+    character_id: pickRandomCharacter().id,
   });
 
   repository.saveEvent('revive', JSON.stringify({
@@ -329,7 +322,7 @@ export function revivePet(): void {
 }
 
 /**
- * Reroll the pet's appearance — new egg (if EGG) or new character (if hatched).
+ * Reroll the pet's appearance — new character sprite.
  */
 export function rerollPet(): void {
   const pet = repository.getPetState();
@@ -337,19 +330,11 @@ export function rerollPet(): void {
 
   const updates: Record<string, unknown> = {};
 
-  if (pet.stage === 'EGG') {
-    let newEggId: number;
-    do {
-      newEggId = Math.floor(Math.random() * EGG_COUNT) + 1;
-    } while (newEggId === pet.egg_id && EGG_COUNT > 1);
-    updates.egg_id = newEggId;
-  } else {
-    let newCharId: string;
-    do {
-      newCharId = pickRandomCharacter().id;
-    } while (newCharId === pet.character_id);
-    updates.character_id = newCharId;
-  }
+  let newCharId: string;
+  do {
+    newCharId = pickRandomCharacter().id;
+  } while (newCharId === pet.character_id);
+  updates.character_id = newCharId;
 
   repository.updatePetState(updates);
   repository.saveEvent('reroll', JSON.stringify({

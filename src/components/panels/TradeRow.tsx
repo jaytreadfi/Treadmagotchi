@@ -30,7 +30,13 @@ const STRATEGY_DISPLAY: Record<string, string> = {
 function parseStrategy(mmParams: string): string {
   try {
     const parsed = JSON.parse(mmParams);
-    return STRATEGY_DISPLAY[parsed.reference_price] || parsed.reference_price || '-';
+    const base = STRATEGY_DISPLAY[parsed.reference_price] || parsed.reference_price || '-';
+    if (base === '-') return '-';
+    const spread = parsed.spread_bps;
+    if (spread != null && spread !== undefined) {
+      return `${base} ${spread >= 0 ? '+' : ''}${spread}`;
+    }
+    return base;
   } catch {
     return '-';
   }
@@ -42,6 +48,11 @@ export default function TradeRow({ trade, isNew, expanded, onToggle }: TradeRowP
   const pnl = trade.realized_pnl;
   const account = trade.account_name || '-';
 
+  const vol = trade.volume;
+  const volumeStr = vol != null && vol > 0
+    ? vol >= 1000 ? `$${(vol / 1000).toFixed(1)}K` : `$${vol.toFixed(0)}`
+    : trade.quantity > 0 ? `$${trade.quantity.toFixed(0)}` : '-';
+
   return (
     <div
       className={`border-b border-gold-dim/10 ${isNew ? 'animate-trade-in' : ''} ${onToggle ? 'cursor-pointer hover:bg-white/[0.02]' : ''}`}
@@ -50,7 +61,7 @@ export default function TradeRow({ trade, isNew, expanded, onToggle }: TradeRowP
       <div className="grid grid-cols-[1fr_0.8fr_0.7fr_0.7fr_0.6fr_0.6fr] gap-2 text-xs py-2">
         <span className="text-energy truncate">{trade.pair}</span>
         <span className="text-white/50 truncate">{account}</span>
-        <span className="text-white/60 text-right">${trade.quantity.toFixed(0)}</span>
+        <span className="text-white/60 text-right">{volumeStr}</span>
         <span className={`text-right ${pnl == null ? 'text-white/20' : pnl >= 0 ? 'text-joy' : 'text-hp'}`}>
           {pnl == null ? '-' : `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`}
         </span>

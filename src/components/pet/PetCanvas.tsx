@@ -5,25 +5,22 @@ import { usePetStore } from '@/store/usePetStore';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '@/lib/constants';
 import { getCharacterById } from '@/lib/characters';
 import { getMapById } from '@/lib/maps';
-import { preloadImage, preloadEgg, preloadShadow, preloadMap, getCached } from '@/lib/sprites';
+import { preloadImage, preloadShadow, preloadMap, getCached } from '@/lib/sprites';
 import {
   createCharacterState,
   tickCharacter,
   triggerHappyBurst,
   drawCharacter,
-  drawEgg,
   type CharacterState,
 } from './characterAnimator';
 import { drawMoodEffect } from './moodEffects';
 
 const EVOLUTION_FLASH_DURATION_MS = 8000;
-const HATCH_DURATION_FRAMES = 180; // ~3 sec at 60fps
 
 export default function PetCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef(0);
   const charStateRef = useRef<CharacterState>(createCharacterState());
-  const hatchFrameRef = useRef(0);
 
   const stage = usePetStore((s) => s.stage);
   const mood = usePetStore((s) => s.mood);
@@ -31,13 +28,10 @@ export default function PetCanvas() {
   const speechBubble = usePetStore((s) => s.speech_bubble);
   const speechBubbleUntil = usePetStore((s) => s.speech_bubble_until);
   const evolvedAt = usePetStore((s) => s.evolved_at);
-  const eggId = usePetStore((s) => s.egg_id);
   const characterId = usePetStore((s) => s.character_id);
   const mapId = usePetStore((s) => s.map_id);
 
   const [assetsReady, setAssetsReady] = useState(false);
-  const [isHatching, setIsHatching] = useState(false);
-  const prevStageRef = useRef(stage);
   const prevSpeechRef = useRef<string | null>(null);
 
   // ── Preload assets ──
@@ -47,10 +41,6 @@ export default function PetCanvas() {
       const promises: Promise<unknown>[] = [
         preloadShadow(),
       ];
-
-      if (eggId) {
-        promises.push(preloadEgg(eggId));
-      }
 
       if (characterId) {
         const charDef = getCharacterById(characterId);
@@ -73,19 +63,7 @@ export default function PetCanvas() {
     }
     load();
     return () => { cancelled = true; };
-  }, [eggId, characterId, mapId]);
-
-  // ── Detect EGG→CRITTER hatching ──
-  useEffect(() => {
-    if (prevStageRef.current === 'EGG' && stage !== 'EGG') {
-      setIsHatching(true);
-      hatchFrameRef.current = 0;
-      const timer = setTimeout(() => setIsHatching(false), 3000);
-      prevStageRef.current = stage;
-      return () => clearTimeout(timer);
-    }
-    prevStageRef.current = stage;
-  }, [stage]);
+  }, [characterId, mapId]);
 
   // ── Speech bubble expiry ──
   const [visibleSpeech, setVisibleSpeech] = useState<string | null>(speechBubble);
@@ -137,77 +115,7 @@ export default function PetCanvas() {
       if (mapImg) ctx.drawImage(mapImg, 0, 0, W, H);
     }
 
-    // ── HATCHING ANIMATION ──
-    if (isHatching) {
-      hatchFrameRef.current++;
-      const hf = hatchFrameRef.current;
-      const progress = hf / HATCH_DURATION_FRAMES;
-
-      if (progress < 0.5) {
-        const intensity = 2 + progress * 16;
-        if (eggId) {
-          drawEgg(ctx, `/sprites/eggs/${eggId}.png`, frame, intensity);
-        }
-        if (progress > 0.25) {
-          ctx.save();
-          ctx.strokeStyle = '#fff';
-          ctx.lineWidth = 1;
-          ctx.globalAlpha = (progress - 0.25) / 0.25;
-          ctx.beginPath();
-          ctx.moveTo(136, 76); ctx.lineTo(142, 68); ctx.lineTo(148, 78);
-          ctx.moveTo(140, 82); ctx.lineTo(144, 72);
-          ctx.moveTo(134, 84); ctx.lineTo(138, 74); ctx.lineTo(146, 82);
-          ctx.stroke();
-          ctx.restore();
-        }
-      } else if (progress < 0.65) {
-        const flashProgress = (progress - 0.5) / 0.15;
-        ctx.save();
-        ctx.fillStyle = '#fff';
-        ctx.globalAlpha = 1 - flashProgress;
-        ctx.fillRect(0, 0, W, H);
-        ctx.restore();
-      } else {
-        const fadeProgress = Math.min(1, (progress - 0.65) / 0.15);
-        if (characterId) {
-          const charDef = getCharacterById(characterId);
-          if (charDef) {
-            ctx.save();
-            ctx.globalAlpha = fadeProgress;
-            drawCharacter(ctx, charStateRef.current, charDef.sheet, 'content', true);
-            ctx.restore();
-          }
-        }
-        const sparkleAlpha = 1 - (progress - 0.65) / 0.35;
-        if (sparkleAlpha > 0) {
-          ctx.save();
-          ctx.fillStyle = '#fcd34d';
-          ctx.globalAlpha = sparkleAlpha * 0.9;
-          for (let i = 0; i < 8; i++) {
-            const angle = (i * Math.PI * 2) / 8 + frame * 0.02;
-            const dist = 8 + (progress - 0.65) * 100;
-            const sx = 142 + Math.cos(angle) * dist;
-            const sy = 80 + Math.sin(angle) * dist;
-            ctx.fillRect(sx - 1, sy - 1, 3, 3);
-          }
-          ctx.restore();
-        }
-      }
-      drawSpeechBubble(ctx, visibleSpeech, 142, 50);
-      return;
-    }
-
-    // ── EGG STAGE ──
-    if (stage === 'EGG') {
-      if (eggId) {
-        const bob = Math.sin(frame * 0.04) * 4;
-        drawEgg(ctx, `/sprites/eggs/${eggId}.png`, frame, 1.5, bob);
-      }
-      drawSpeechBubble(ctx, visibleSpeech, 142, 50);
-      return;
-    }
-
-    // ── POST-HATCH: Walking character ──
+    // ── Walking character ──
     if (characterId) {
       const charDef = getCharacterById(characterId);
       if (charDef) {
@@ -233,7 +141,7 @@ export default function PetCanvas() {
         drawSpeechBubble(ctx, visibleSpeech, cs.x + 12, cs.y - 14);
       }
     }
-  }, [stage, mood, isAlive, visibleSpeech, isEvolving, isHatching, eggId, characterId, mapSrc]);
+  }, [stage, mood, isAlive, visibleSpeech, isEvolving, characterId, mapSrc]);
 
   // ── Animation loop ──
   useEffect(() => {

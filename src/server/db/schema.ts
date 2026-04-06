@@ -18,6 +18,7 @@ export const trades = sqliteTable('trades', {
   mm_params: text('mm_params').notNull().default('{}'), // JSON
   account_name: text('account_name'),
   exchange: text('exchange'),
+  volume: real('volume'),
   source: text('source').notNull().default('ai'),
   submitted_at: integer('submitted_at'),
   timestamp: integer('timestamp').notNull(),
@@ -126,7 +127,7 @@ export const petState = sqliteTable('pet_state', {
   energy: real('energy').notNull().default(100),
   health: real('health').notNull().default(100),
   mood: text('mood').notNull().default('content'),
-  stage: text('stage').notNull().default('EGG'),
+  stage: text('stage').notNull().default('CRITTER'),
   cumulative_volume: real('cumulative_volume').notNull().default(0),
   consecutive_losses: integer('consecutive_losses').notNull().default(0),
   last_trade_time: integer('last_trade_time'),

@@ -276,7 +276,7 @@ async function _syncBotStatusesInner(): Promise<Array<Record<string, unknown>>> 
 
   let orders: Array<Record<string, unknown>>;
   try {
-    const data = await treadApi.getMmOrders('ACTIVE,COMPLETED,CANCELED,PAUSED,FAILED', pageSize);
+    const data = await treadApi.getMmOrders('ACTIVE,COMPLETED,CANCELED,PAUSED,FAILED,FINISHER', pageSize);
     const raw = (data.market_maker_orders || data.multi_orders || data.results || data.orders || []) as Array<Record<string, unknown>>;
     orders = Array.isArray(raw) ? raw : [];
   } catch (err) {
@@ -340,6 +340,14 @@ async function _syncBotStatusesInner(): Promise<Array<Record<string, unknown>>> 
 
       // Use actual executed_notional from Tread API (real filled volume)
       const volume = Number(order.executed_notional || 0);
+
+      // Persist volume to DB
+      if (trade.id != null && volume > 0) {
+        try {
+          repository.updateTradeVolume(trade.id, volume);
+        } catch { /* non-fatal */ }
+      }
+
       const pnlUncertain = isNaN(pnl);
       if (pnlUncertain) {
         console.error(`[Executor] PnL UNKNOWN for ${trade.treadfi_id} -- skipping outcome, needs manual reconciliation`);
@@ -389,6 +397,51 @@ async function _syncBotStatusesInner(): Promise<Array<Record<string, unknown>>> 
       updated.push(...reconciled);
     } catch (err) {
       console.error('[Executor] Reconciliation error:', err);
+    }
+
+    // PnL backfill — retry terminal trades that have no outcome (capped at 5 per cycle)
+    try {
+      const orphans = repository.getTerminalTradesWithoutOutcome(5);
+      for (const trade of orphans) {
+        if (!trade.treadfi_id) continue;
+        try {
+          const fullOrder = await treadApi.getMultiOrder(trade.treadfi_id);
+          let pnl = NaN;
+          const oc = fullOrder.on_complete_stats as Record<string, unknown> | undefined;
+          if (oc?.net_pnl != null) pnl = Number(oc.net_pnl);
+          else if (fullOrder.realized_pnl != null) pnl = Number(fullOrder.realized_pnl);
+          else {
+            try {
+              const tca = await treadApi.getMultiOrderTca(trade.treadfi_id);
+              pnl = -Number(tca.fee_notional || 0);
+            } catch { /* non-fatal */ }
+          }
+          if (!isNaN(pnl)) {
+            repository.saveTradeOutcome(trade.id, pnl);
+            log(`PnL backfill: trade #${trade.id} (${trade.treadfi_id}) -> pnl=${pnl.toFixed(2)}`);
+          }
+
+          // Also backfill volume if missing
+          const vol = Number(fullOrder.executed_notional || 0);
+          if (vol > 0 && !trade.volume) {
+            repository.updateTradeVolume(trade.id, vol);
+          }
+          // Backfill mm_params if empty
+          if (!trade.mm_params || trade.mm_params === '{}') {
+            const enriched = JSON.stringify({
+              reference_price: fullOrder.reference_price ?? undefined,
+              spread_bps: fullOrder.spread_bps != null ? Number(fullOrder.spread_bps) : undefined,
+              leverage: fullOrder.leverage != null ? Number(fullOrder.leverage) : undefined,
+              margin: fullOrder.margin != null ? Number(fullOrder.margin) : undefined,
+            });
+            if (enriched !== '{}') repository.updateTradeMmParams(trade.id, enriched);
+          }
+        } catch (err) {
+          log(`PnL backfill failed for ${trade.treadfi_id}: ${err}`);
+        }
+      }
+    } catch (err) {
+      console.error('[Executor] PnL backfill error:', err);
     }
   }
 
@@ -466,10 +519,26 @@ async function reconcileUntracked(
       pnl = Number(fullOrder.realized_pnl);
     } else if (order.realized_pnl != null || order.pnl != null) {
       pnl = Number(order.realized_pnl ?? order.pnl ?? 0);
+    } else {
+      // TCA fallback — same as main sync path
+      try {
+        const tca = await treadApi.getMultiOrderTca(orderId);
+        pnl = -Number(tca.fee_notional || 0);
+      } catch { /* non-fatal, pnl stays NaN */ }
     }
 
     const volume = Number(order.executed_notional || fullOrder.executed_notional || 0);
     const newStatus = mapStatus(String(order.status || ''), { ...order, ...fullOrder });
+
+    // Build enriched mm_params from full order data
+    const reconMmParams = JSON.stringify({
+      reference_price: fullOrder.reference_price ?? undefined,
+      spread_bps: fullOrder.spread_bps != null ? Number(fullOrder.spread_bps) : undefined,
+      leverage: fullOrder.leverage != null ? Number(fullOrder.leverage) : undefined,
+      margin: fullOrder.margin != null ? Number(fullOrder.margin) : undefined,
+      engine_passiveness: fullOrder.engine_passiveness ?? undefined,
+    });
+    const reconMargin = Number(fullOrder.margin || 0);
 
     // Try to match against failed DB trades
     const orderTimestamp = parseTimestampMs(
@@ -501,6 +570,12 @@ async function reconcileUntracked(
       matchedFailedIds.add(bestMatch.id);
       try {
         repository.updateTradeStatus(bestMatch.id, newStatus, orderId);
+        // Persist volume + enriched strategy data
+        const extras: { volume?: number; mm_params?: string; quantity?: number } = {};
+        if (volume > 0) extras.volume = volume;
+        if (reconMmParams !== '{}' && (!bestMatch.mm_params || bestMatch.mm_params === '{}')) extras.mm_params = reconMmParams;
+        if (reconMargin > 0 && bestMatch.quantity === 0) extras.quantity = reconMargin;
+        if (Object.keys(extras).length) repository.updateTradeExtras(bestMatch.id, extras);
         if (!isNaN(pnl)) {
           repository.saveTradeOutcome(bestMatch.id, pnl);
           if (pnl < 0) riskManager.recordLoss(Math.abs(pnl));
@@ -523,17 +598,18 @@ async function reconcileUntracked(
         }
       }
     } else {
-      // Unmatched: import as new trade (quantity = margin from write-ahead, unavailable here so use 0)
+      // Unmatched: import as new trade with enriched data from API
       try {
         const imported = repository.saveTrade({
           pair,
           side: 'mm',
-          quantity: 0,
+          quantity: reconMargin || 0,
+          volume: volume > 0 ? volume : null,
           price: null,
           treadfi_id: orderId,
           status: newStatus,
           reasoning: 'Imported by reconciliation',
-          mm_params: '{}',
+          mm_params: reconMmParams,
           account_name: account,
           exchange: null,
           source: 'reconciled',

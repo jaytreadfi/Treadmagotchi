@@ -84,6 +84,22 @@ export function updateTradeMmParams(id: number, mmParams: string): void {
     .run();
 }
 
+/** Update the volume (executed_notional) on a trade. */
+export function updateTradeVolume(id: number, volume: number): void {
+  db.update(trades)
+    .set({ volume })
+    .where(eq(trades.id, id))
+    .run();
+}
+
+/** Update volume and mm_params together on a trade. */
+export function updateTradeExtras(id: number, extras: { volume?: number; mm_params?: string; quantity?: number }): void {
+  db.update(trades)
+    .set(extras)
+    .where(eq(trades.id, id))
+    .run();
+}
+
 /**
  * Fetch trades ordered by timestamp descending.
  * Supports cursor-based pagination using a composite (timestamp, id) cursor
@@ -139,6 +155,7 @@ export function getTradesWithPnl(limit = 50, before?: number, beforeId?: number)
     mm_params: trades.mm_params,
     account_name: trades.account_name,
     exchange: trades.exchange,
+    volume: trades.volume,
     source: trades.source,
     submitted_at: trades.submitted_at,
     timestamp: trades.timestamp,
@@ -179,6 +196,30 @@ export function getTradesWithPnl(limit = 50, before?: number, beforeId?: number)
     .all();
 }
 
+/** Return terminal trades that have no outcome recorded (PnL missing). Limited to recent trades. */
+export function getTerminalTradesWithoutOutcome(limit = 10): Trade[] {
+  const rows = sqlite.prepare(`
+    SELECT t.* FROM trades t
+    LEFT JOIN trade_outcomes o ON o.trade_id = t.id
+    WHERE t.status IN ('completed', 'stop_loss', 'take_profit', 'canceled', 'failed')
+      AND t.treadfi_id IS NOT NULL
+      AND o.id IS NULL
+    ORDER BY t.timestamp DESC
+    LIMIT ?
+  `).all(limit) as Trade[];
+  return rows;
+}
+
+/** Return all trades that have a treadfi_id (for backfill operations). */
+export function getTradesWithTreadfiId(limit = 500): Trade[] {
+  return sqlite.prepare(`
+    SELECT * FROM trades
+    WHERE treadfi_id IS NOT NULL
+    ORDER BY timestamp DESC
+    LIMIT ?
+  `).all(limit) as Trade[];
+}
+
 /** Return only trades with an active status (submitted or active). */
 export function getActiveTradesOnly(): Trade[] {
   return db
@@ -206,7 +247,14 @@ export function saveTradeOutcome(tradeId: number, pnl: number): void {
       outcome,
       timestamp: Date.now(),
     })
-    .onConflictDoNothing()
+    .onConflictDoUpdate({
+      target: tradeOutcomes.trade_id,
+      set: {
+        realized_pnl: pnl,
+        outcome,
+        timestamp: Date.now(),
+      },
+    })
     .run();
 }
 
@@ -355,7 +403,7 @@ export function updatePetState(updates: Partial<PetStateRow>): void {
         energy: 100,
         health: 100,
         mood: 'content',
-        stage: 'EGG',
+        stage: 'CRITTER',
         cumulative_volume: 0,
         consecutive_losses: 0,
         last_save_time: Date.now(),
@@ -374,7 +422,7 @@ export function updatePetState(updates: Partial<PetStateRow>): void {
 }
 
 /** Create the initial pet state if none exists. */
-export function initPetState(name: string, eggId?: number): void {
+export function initPetState(name: string, characterId?: string): void {
   const existing = getPetState();
   if (existing) return;
 
@@ -387,12 +435,12 @@ export function initPetState(name: string, eggId?: number): void {
       energy: 100,
       health: 100,
       mood: 'content',
-      stage: 'EGG',
+      stage: 'CRITTER',
       cumulative_volume: 0,
       consecutive_losses: 0,
       last_save_time: Date.now(),
       is_alive: true,
-      egg_id: eggId ?? Math.floor(Math.random() * 59) + 1,
+      character_id: characterId,
     })
     .run();
 }

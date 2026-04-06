@@ -6,7 +6,7 @@ import { EVOLUTION_ORDER, EVOLUTION_THRESHOLDS } from '@/lib/constants';
 import type { EvolutionStage } from '@/lib/types';
 
 function getStageForVolume(cumulativeVolume: number): EvolutionStage {
-  let result: EvolutionStage = 'EGG';
+  let result: EvolutionStage = 'CRITTER';
   for (const stage of EVOLUTION_ORDER) {
     if (cumulativeVolume >= EVOLUTION_THRESHOLDS[stage]) {
       result = stage;

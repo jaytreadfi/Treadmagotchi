@@ -83,7 +83,6 @@ export interface AIDecision {
 // ── Pet types ──
 
 export type EvolutionStage =
-  | 'EGG'
   | 'CRITTER'
   | 'CREATURE'
   | 'BEAST'
@@ -137,6 +136,7 @@ export interface TradeRecord {
   pair: string;
   side: string;
   quantity: number;
+  volume: number | null;
   price: number | null;
   status: string;
   reasoning: string;

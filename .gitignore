@@ -37,6 +37,9 @@ data/
 *.db-wal
 *.db-shm
 
+# tasks / claude working files
+tasks/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

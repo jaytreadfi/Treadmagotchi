@@ -281,7 +281,7 @@ export const POST = withAuth(async (request: Request) => {
           energy: Number(ps.energy ?? vitals.energy ?? 100),
           health: Number(ps.health ?? vitals.health ?? 100),
           mood: (ps.mood as string) || 'content',
-          stage: (ps.stage as string) || 'EGG',
+          stage: (ps.stage as string) || 'CRITTER',
           cumulative_volume: Number(ps.cumulative_volume ?? 0),
           consecutive_losses: Number(ps.consecutive_losses ?? 0),
           last_trade_time: ps.last_trade_time != null ? Number(ps.last_trade_time) : null,

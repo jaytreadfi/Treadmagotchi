@@ -35,15 +35,14 @@ export const MAX_STARVATION_DAMAGE_MINS = 120;
 
 // ── Evolution thresholds (cumulative trading volume in USD) ──
 export const EVOLUTION_THRESHOLDS: Record<EvolutionStage, number> = {
-  EGG: 0,
-  CRITTER: 100_000,
+  CRITTER: 0,
   CREATURE: 1_000_000,
   BEAST: 5_000_000,
   MYTHIC: 55_555_555,
 };
 
 export const EVOLUTION_ORDER: EvolutionStage[] = [
-  'EGG', 'CRITTER', 'CREATURE', 'BEAST', 'MYTHIC',
+  'CRITTER', 'CREATURE', 'BEAST', 'MYTHIC',
 ];
 
 // ── Fallback pairs ──
